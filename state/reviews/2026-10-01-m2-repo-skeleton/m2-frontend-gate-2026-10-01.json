@@ -1,0 +1,60 @@
+{
+  "artifact": "m2-frontend-gate",
+  "checks": [
+    {
+      "check": "npm run build",
+      "passed": true,
+      "detail": "exit 0; \u2713 built in 1m 2s"
+    },
+    {
+      "check": "dist/index.html",
+      "passed": true,
+      "detail": "frontend/dist/index.html"
+    },
+    {
+      "check": "index.html references built assets",
+      "passed": true,
+      "detail": "assets/index-C34PqlLS.js, assets/index-Dqmx50Wk.css"
+    },
+    {
+      "check": "every referenced asset exists",
+      "passed": true,
+      "detail": "all present"
+    },
+    {
+      "check": "bundle contains chain id 61997",
+      "passed": true,
+      "detail": "found"
+    },
+    {
+      "check": "bundle contains the Studio-dev RPC",
+      "passed": true,
+      "detail": "found"
+    },
+    {
+      "check": "no private key in dist/",
+      "passed": true,
+      "detail": "clean"
+    },
+    {
+      "check": "preview server responds",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "check": "served page contains the app markup",
+      "passed": true,
+      "detail": "app shell present"
+    },
+    {
+      "check": "served page is the built page, not a dev server",
+      "passed": true,
+      "detail": "hashed asset referenced"
+    },
+    {
+      "check": "page title",
+      "passed": true,
+      "detail": "title present"
+    }
+  ]
+}

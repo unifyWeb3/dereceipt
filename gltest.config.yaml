@@ -1,0 +1,48 @@
+# gltest configuration
+#
+# Direct-test configuration. The tests themselves are written at M4; this file
+# exists at M2 so the contract and the test harness are pinned before the code
+# that uses them is written, rather than after.
+#
+# Two version pins in here are deliberate and copied from the 360/400 reference
+# build, which is the build this project is modelled on. Neither is a typo:
+#
+#   genvm_version  The contract header targets the older v0.3 SDK layout that
+#                  the live Studio-dev target actually runs (measured: GenVM
+#                  v0.3.0-rc7). The reference build therefore ran its direct
+#                  tests against a *newer* GenVM, v0.6.0-rc5. The mismatch is
+#                  intentional and is what the reference submission did.
+#                  When a direct test disagrees with the live target, believe
+#                  the live target.
+#   contract_runner The runner the contract header pins. This must equal
+#                  py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
+#                  and nothing else. The hash named in the published
+#                  documentation is rejected by this target; M0 measured that.
+#
+# Docker is unavailable in this environment, so direct tests must not require
+# it. `genlayer-test` normally wants a localnet for some flows; anything that
+# needs one is out of scope for the direct suite and must say so in
+# docs/VERIFICATION.md rather than being skipped silently.
+
+genvm_version: v0.6.0-rc5
+
+contract_runner: py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
+
+# The contract under test. Written at M3.
+contract: contracts/contest_receipt.py
+
+# Direct tests exercise the contract without a network: no localnet, no
+# faucet, no Docker. Anything needing a network belongs to the live run at M6.
+tests:
+  paths:
+    - tests/direct
+  # No localnet is started for the direct suite.
+  localnet: false
+  docker: false
+
+# The suite runs against the deterministic core only. The optional bounded
+# model criterion (M3.5) is excluded here deliberately: direct tests must stay
+# reproducible and free of any network or provider dependency.
+exclude:
+  - "*_panel.py"
+  - "*_nondet_llm.py"

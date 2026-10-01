@@ -19,7 +19,7 @@ Status vocabulary:
 | --- | --- | --- |
 | M0 · environment and pins | stub deploys, reaches `Finalized` on chain 61997, schema derivable, `genvm-lint check` clean | **passed** |
 | M1 · consensus spike | measured convergence number, decided comparison mode | **passed** — 6/6 converged, 2-bucket. Read the caveats before relying on it |
-| M2 · repo skeleton | `npm run build` succeeds, stub `index.html` serves | pending |
+| M2 · repo skeleton | `npm run build` succeeds, stub `index.html` serves | **passed** |
 | M3 · deterministic core | 9+ methods on the live probe, no `raise` in a payable method, no clock read sharing a method with a transfer. A lint step can only be claimed if a tool is found that runs | pending |
 | M3.5 · bounded LLM criterion | optional; the product is complete without it | pending |
 | M4 · direct tests | 45+ tests, pytest line pasted verbatim below | pending |
@@ -35,6 +35,7 @@ Environment: Python 3.12.3, Node v22.23.2, npm 10.9.8,
 Plan and handoff: `state/reviews/2026-10-01-hackathon-discovery/`.
 M0 record: `state/reviews/2026-10-01-m0-env-pins/`.
 M1 record: `state/reviews/2026-10-01-m1-consensus-spike/`.
+M2 record: `state/reviews/2026-10-01-m2-repo-skeleton/`.
 Machine-generated evidence: [`docs/evidence/m0-2026-10-01.json`](evidence/m0-2026-10-01.json).
 Reproduce with `scripts/m0_env_probe.py`, which reads secrets from the process
 environment only and writes the JSON from its own observations. The evidence
@@ -217,6 +218,53 @@ M1 did not fail, so M3.5 is **not** blocked. But the evidence supports shipping
 it as the plan always intended: optional, one criterion, able to label nothing
 that moves money. Caveat 1 is the reason to keep that framing — a jury that
 converges on the easy case says little about the hard one.
+
+## M2 · repo skeleton
+
+Machine-generated evidence: [`m2-frontend-gate-2026-10-01.json`](evidence/m2-frontend-gate-2026-10-01.json).
+Reproduce with `scripts/m2_frontend_gate.py`, which runs the build, asserts the
+built artefacts, and starts the preview server itself. Record:
+`state/reviews/2026-10-01-m2-repo-skeleton/`.
+
+**No contract code in this milestone.** `contracts/contest_receipt.py` does not
+exist; `scripts/deploy_studio_dev.py` says so plainly instead of failing
+cryptically.
+
+| Check | Evidence | Status |
+| --- | --- | --- |
+| `npm run build` succeeds | exit 0, `vite v6.4.3`, 454 modules, `✓ built in 1m 2s` | passed |
+| Built `index.html` references hashed assets | `assets/index-*.js`, `assets/index-*.css`, both present on disk | passed |
+| Built bundle carries the pinned target | chain `61997` and `https://studio-dev.genlayer.com/api` both found in the bundle | passed |
+| No key material in `dist/` | the environment's real key value scanned against every JS asset — clean | passed |
+| The built page actually serves | `vite preview` → HTTP 200, app shell and `<title>Contest Receipt` present, hashed asset referenced, so it is the built page and not the dev server | passed |
+| Deploy path works end to end | `scripts/deploy_studio_dev.py --contract contracts/m0_stub_probe.py` → deploy `0xd546e880…` → `0xb7ddd73F…`, `finalized`/`accepted`, `MAJORITY_AGREE`, `FINISHED_WITH_RETURN`, explorer HTTP 200, exit 0 | passed |
+| Deploy `--dry-run` works | against the M1 spike, 2 methods derived, no transaction sent | passed |
+| Both secret guards fire | path guard: 16 cases, all correct — `keys/private.key` and `wallet.keystore` refused inside the checkout, `docs/evidence/*.json` and source files allowed. Content guard: the real key refused when written 0x-prefixed, bare, uppercased, or as an env dump; a transaction ID of identical shape allowed | passed |
+| `gltest.config.yaml`, `pyproject.toml`, `vercel.json`, `LICENSE`, `README.md`, `.env.example` | present, with the deliberate version pins and their reasons written down | passed |
+| The real interface | **not built.** `frontend/src/main.js` is a skeleton that proves the build, the chain assertion and the lifecycle wait | not started |
+| Direct tests | **not written.** `tests/direct/` holds the layout and the rules, no tests | not started |
+| Docker | unavailable; direct tests must not require it | unverified |
+
+### 11/11 frontend gate checks
+
+Run by `scripts/m2_frontend_gate.py`, all passing: build exit 0 · `dist/index.html`
+present · assets referenced · assets exist · chain id in bundle · RPC in bundle ·
+no key in `dist/` · preview HTTP 200 · app markup served · built page not dev
+server · page title.
+
+### Two things M2 measured that are worth stating
+
+1. **The bundle is 606 KB, of which the app's own source is about 5 KB.** The
+   size is `genlayer-js` plus `viem`, not the interface. The reference build's
+   entire hand-written UI was 13.9 KB and shipped the same two dependencies, so
+   this is the dependency cost and not a regression. M5 should code-split if it
+   wants a smaller first paint, and should not treat the number as a quality
+   signal either way.
+2. **The `gltest` version pins are a deliberate mismatch.** `genvm_version` is
+   `v0.6.0-rc5` while the live target runs GenVM `v0.3.0-rc7`, because the
+   contract header targets the older SDK layout. That is what the 360/400 build
+   did, and it is recorded in `gltest.config.yaml` with the reason. When a direct
+   test disagrees with the live target, the live target is right.
 
 ## Evidence rules
 

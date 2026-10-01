@@ -1,0 +1,19 @@
+{
+  "name": "contest-receipt-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Auditable verdicts for AI-judged hackathons and grant rounds, on GenLayer.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "genlayer-js": "2.0.0-rc.1",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

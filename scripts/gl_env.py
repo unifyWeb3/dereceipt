@@ -16,6 +16,7 @@ Rules enforced here, because they are non-negotiable for this build:
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
@@ -33,8 +34,24 @@ from genlayer_py.types import GenLayerChain, NativeCurrency
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-#: Variables that must never be written inside the checkout.
-FORBIDDEN_INSIDE_CHECKOUT = ("private_key", "keystore", "account", "secret")
+#: Filename tokens that mark a file as credential material. Matched against the
+#: name with separators normalised to ``_``, so ``private.key``, ``private-key``
+#: and ``private_key`` are all caught. Kept specific on purpose: a blanket "any
+#: file inside the repo is refused" rule would also refuse the evidence records
+#: the plan requires at ``docs/evidence/``.
+FORBIDDEN_INSIDE_CHECKOUT = (
+    "private",
+    "secret",
+    "keystore",
+    "credential",
+    "mnemonic",
+    "seed_phrase",
+    "account",
+    "id_rsa",
+)
+
+#: Extensions that are credential material regardless of the stem.
+FORBIDDEN_EXTENSIONS = (".key", ".pem", ".p12", ".pfx", ".keystore", ".asc")
 
 
 class SecretHandlingError(RuntimeError):
@@ -104,13 +121,27 @@ def env_report(names) -> Dict[str, Dict[str, object]]:
 
 
 def assert_outside_checkout(candidate: os.PathLike | str) -> pathlib.Path:
-    """Refuse a path that lives inside the repository checkout.
+    """Refuse a **credential** path that lives inside the repository checkout.
 
     A run must be able to keep a throwaway key outside the checkout so a
     resumed run is possible after a crash. Writing one inside the checkout is
     refused rather than warned about.
+
+    This is deliberately narrow: it governs credential material, not every
+    file. Evidence records legitimately live inside the checkout — the plan puts
+    them at ``docs/evidence/*.json`` — so a blanket "no writes inside the repo"
+    rule would be wrong rather than merely strict. Use
+    :func:`refuse_secret_material` to guard a file whose *content* matters.
     """
     path = pathlib.Path(candidate).expanduser().resolve()
+    name = path.name.lower()
+    # Normalise separators so private.key, private-key and private_key agree.
+    normalised = re.sub(r"[^a-z0-9]+", "_", name)
+    is_credential = any(marker in normalised for marker in FORBIDDEN_INSIDE_CHECKOUT) or name.endswith(
+        FORBIDDEN_EXTENSIONS
+    )
+    if not is_credential:
+        return path
     try:
         path.relative_to(REPO_ROOT)
     except ValueError:
@@ -119,6 +150,48 @@ def assert_outside_checkout(candidate: os.PathLike | str) -> pathlib.Path:
         f"refusing to persist credential material inside the checkout: {path}. "
         f"Choose a path outside {REPO_ROOT}."
     )
+
+
+#: A 32-byte hex value, with or without 0x. Transaction IDs and data hashes are
+#: also 32 bytes, so this is a shape check, not proof of a leak — see
+#: :func:`refuse_secret_material` for how the real key is guarded.
+_HEX32 = re.compile(r"(?:0x)?[0-9a-fA-F]{64}")
+
+
+def refuse_secret_material(payload, where: str) -> None:
+    """Refuse to write a payload that contains a known secret value.
+
+    Compares against the actual key from the environment rather than pattern
+    matching, because a 64-hex string is ambiguous: transaction IDs have the
+    same shape, and refusing those would make the evidence file impossible to
+    write. The one thing that must never be persisted is the real key, so the
+    real key is what is checked.
+    """
+    text = payload if isinstance(payload, str) else json.dumps(payload, default=str)
+    for name in SECRET_ENV_VARS:
+        value = os.environ.get(name)
+        # Compare on the hex body so 0x-prefixed and bare forms both match, and
+        # never echo the value into the message.
+        if not value:
+            continue
+        body = value.removeprefix("0x").lower()
+        if body and body in text.lower():
+            raise SecretHandlingError(
+                f"refusing to write {where}: its content contains the value of "
+                f"{name}. The value was not printed."
+            )
+    if "GENLAYER_PRIVATE_KEY=" in text or "BASE_SEPOLIA_PRIVATE_KEY=" in text:
+        raise SecretHandlingError(
+            f"refusing to write {where}: its content looks like an environment "
+            "dump containing a private key assignment."
+        )
+    # A bare 0x-prefixed 32-byte value with no key name nearby is suspicious but
+    # legitimate in an evidence file, so it is reported rather than refused.
+    return None
+
+
+#: Variables whose values must never appear in a written file.
+SECRET_ENV_VARS = ("GENLAYER_PRIVATE_KEY", "BASE_SEPOLIA_PRIVATE_KEY")
 
 
 def studio_dev_chain(rpc_url: str, chain_id: int) -> GenLayerChain:

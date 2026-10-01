@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contest-receipt"
+version = "0.1.0"
+description = "Auditable verdicts for AI-judged hackathons and grant rounds, as GenLayer Intelligent Contracts."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+# Runtime dependencies. The contract runner hash below is NOT a pip dependency —
+# it is a contract header value, and it is repeated here only so a reader finds
+# both pins in one place. It was verified by probing the live target, not read
+# from documentation; the hash the documentation names is rejected by Studio-dev.
+#
+#   py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
+dependencies = [
+    "genlayer-py==0.19.0rc2",
+    "web3>=8.0.0",
+    "eth-account>=0.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # The linter is named genvm-linter, with an "er". Pinned to the commit the
+    # 360/400 reference build used. requirements-dev.txt carries the git URL so
+    # the pin is exact rather than a moving version.
+    "genvm-linter==0.11.1rc2",
+    "pytest>=7.4.4",
+]
+
+[tool.setuptools]
+# The contract and the scripts are run in place, not imported as a library.
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests/direct"]
+python_files = ["test_*.py"]
+# The direct suite must not need a network, a localnet or Docker. If a test does,
+# it is out of scope for tests/direct — see tests/direct/README.md.
+addopts = "-q"
+markers = [
+    "live: requires the Studio-dev network; excluded from the direct suite",
+]
