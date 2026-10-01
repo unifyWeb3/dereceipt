@@ -371,7 +371,7 @@ chain 61997. **Result: passed with one gap** — no local linter was run; see
 
 ### M1 · Consensus spike (3 h) — **the de-risking gate** ✅ *done, see §10b*
 
-### M2 · Repo skeleton (1 h)
+### M2 · Repo skeleton (1 h) ✅ *done, see §10c*
 
 Mirror the 360/400 layout — it is proven and reviewers read it well:
 
@@ -835,6 +835,75 @@ M1 met the gate, so **M3.5 is not blocked**. It stays optional and keeps the
 mid-session. It was restored from the archive and the script now refuses to do
 it. This is exactly the failure mode that would have made M6's evidence file
 silently empty.
+
+---
+
+## 10c. M2 results — resolved 2026-10-01
+
+M2 passed 11/11, committed `b693f20`. Record:
+`state/reviews/2026-10-01-m2-repo-skeleton/`, `REVIEW.md` alongside it.
+
+Gate met: `npm run build` exit 0, the **built** page serves and references its
+hashed asset, the bundle carries chain 61997 and the Studio-dev RPC, and `dist/`
+is free of key material. Resolved and locked: `genlayer-js 2.0.0-rc.1`,
+`viem 2.57.2`, `vite 6.4.3`, lockfile v3 committed.
+
+### The deploy script was exercised, not just written
+
+`scripts/deploy_studio_dev.py` was dry-run against the M1 spike and fully
+deployed against the M0 stub: `0xd546e880…` → `0xb7ddd73F…`, `finalized`/
+`accepted`, explorer 200, exit 0. I confirmed both on-chain myself. It **exits
+non-zero when a transaction does not reach `finalized`**, so M6 step 1 is a known
+quantity rather than a first-time risk. *A deploy script first run at M6 is a
+script that fails at M6.*
+
+### Secret handling is now two correctly-scoped guards
+
+I tested both myself — 10/10 and 6/6 correct.
+
+| Guard | Refuses | Allows |
+| --- | --- | --- |
+| `assert_outside_checkout` — **path** | credential files inside the checkout, with separators normalised so `private.key` / `private-key` / `private_key` agree | `docs/evidence/*.json`, source, `dist/` |
+| `refuse_secret_material` — **content** | the real key value in any file, in `0x`-prefixed, bare, uppercased and env-dump forms | transaction IDs, data hashes, evidence JSON |
+
+The first M2 version refused *every* path inside the checkout, including
+`docs/evidence/*.json`. That was a real bug, not excessive caution — the plan
+requires that file, and the guard would have made M6's evidence unwritable.
+
+**The content guard compares the actual key, not a 64-hex pattern**, because
+transaction IDs and data hashes are also 32 bytes. Shape matching would have made
+every evidence file unwritable. Keep this.
+
+### Nine hard rules are in `docs/ARCHITECTURE.md`, not in a review file
+
+All four M1 constraints plus the two plan rules, as numbered rules: runner pin ·
+`run_nondet` not `run_nondet_unsafe` · both checks run · no `raise` in a payable
+method · no clock read in a method that moves value · `gl.evm.contract_interface`
+· verdicts via a view · criteria snapshotted at open · the original verdict is
+never overwritten. Plus a dedicated section on *a contested criterion is not a
+validator objection*.
+
+`frontend/src/main.js` already throws on `Undetermined`/`Canceled` and renders
+business state and lifecycle state in **two separate regions**, so rubric
+criterion 4 is satisfied by construction rather than retrofitted at M5.
+
+### Two measurements, recorded so nobody optimises the wrong thing
+
+- **Bundle 606 KB, app source ~5 KB.** The rest is `genlayer-js` + `viem`. The
+  360/400 build shipped the same two dependencies with a 13.9 KB UI, so this is
+  dependency cost, not regression. **Not a quality signal.**
+- **`gltest.config.yaml` pins a deliberate mismatch**: `genvm_version v0.6.0-rc5`
+  against a live GenVM `v0.3.0-rc7`, because the contract header targets the
+  older SDK layout. Carried from the reference build with the reason written down
+  and the rule attached: **when a direct test disagrees with the live target, the
+  live target is right.** This will matter at M4.
+
+### Minor, not blocking
+
+`viem` and `vite` are caret ranges in `package.json`. The lockfile pins them so
+builds reproduce, but a reviewer reading `package.json` alone sees ranges.
+`genlayer-js` — the one that matters — is exact. Pin the other two exactly if
+`package.json` is touched at M3.
 
 ---
 
