@@ -1,0 +1,189 @@
+{
+  "artifact": "m0-environment-and-pins",
+  "milestone": "M0",
+  "generated_by": "scripts/m0_env_probe.py",
+  "observed_on": "2026-10-01T08:00:52+00:00",
+  "network": "GenLayer Studio-dev (temporary; may reset)",
+  "rpc": "https://studio-dev.genlayer.com/api",
+  "chain_id": 61997,
+  "durable": false,
+  "environment": {
+    "variables": {
+      "GENLAYER_STUDIO_DEV_RPC": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      },
+      "GENLAYER_STUDIO_DEV_CHAIN_ID": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      },
+      "GENLAYER_PRIVATE_KEY": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      },
+      "DEPLOYER_ADDRESS": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      },
+      "GENLAYER_FALLBACK_RPC_URL": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      },
+      "GENLAYER_BRADBURY_RPC_URL": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      },
+      "APP_DATABASE_URL": {
+        "in_process_env": true,
+        "in_dotenv_file": true,
+        "populated": true
+      }
+    },
+    "unused_by_design": [
+      "APP_DATABASE_URL"
+    ],
+    "deployer_address": "0x3211d1419709682b81c53CC51cb63622E25488d3",
+    "deployer_address_matches_env": true,
+    "deployer_balance_wei": 98163965837999828732,
+    "keys_read_from": "process environment only; .env is not consulted for secrets"
+  },
+  "chain_identity": {
+    "eth_chainId": {
+      "method": "eth_chainId",
+      "ok": true,
+      "elapsed_s": 2.04,
+      "note": "",
+      "result": "0xf22d",
+      "error": null
+    },
+    "net_version": {
+      "method": "net_version",
+      "ok": true,
+      "elapsed_s": 1.55,
+      "note": "",
+      "result": "61997",
+      "error": null
+    }
+  },
+  "runner_probe": {
+    "method": "gen_getContractSchemaForCode",
+    "candidates": [
+      {
+        "method": "gen_getContractSchemaForCode",
+        "ok": true,
+        "elapsed_s": 2.82,
+        "note": "an accepted runner returns a schema; a rejected one returns VM_ERROR",
+        "result": {
+          "ctor": {
+            "params": [],
+            "kwparams": {}
+          },
+          "methods": {
+            "probe": {
+              "params": [],
+              "kwparams": {},
+              "readonly": true,
+              "ret": "int"
+            }
+          }
+        },
+        "error": null,
+        "runner_hash": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng",
+        "accepted": true,
+        "method_count": 1,
+        "method_names": [
+          "probe"
+        ]
+      },
+      {
+        "method": "gen_getContractSchemaForCode",
+        "ok": false,
+        "error": "GenLayerError: gen_getContractSchemaForCode failed (code=-32603): ('execution failed', {'stdout': '', 'stderr': '', 'genvm_log': [{'ts': '1790841701634', 'target': 'genvm_common', 'message': 'logging initialized', 'version': 'v0.3.0-rc7-x86_64-linux-release', 'file': 'crates/common/src/lib.rs:66', 'level': 'info'}, {'ts': '1790841701646', 'target': 'genvm::exe::run', 'message': 'genvm id', 'genvm_id': '370', 'file': 'src/exe/run.rs:368', 'level': 'info'}, {'ts': '1790841701658', 'target': 'genvm::rt::supervisor::actions', 'message': 'runner load', 'runner': 'chain:0x0000000000000000000000000000000000000000:d:q805cc3mbb7k055ay5hek4sg80r2s85yyftpzrpq7g50hy1cc45g', 'runner_load_cost': '4096', 'size': '953', 'status': 'charged', 'file': 'src/rt/supervisor/actions.rs:357', 'level': 'info'}, {'ts': '1790841701659', 'target': 'genvm', 'message': 'metrics', 'metrics': {'hosts': [{'time': 8928}, {'time': 0}], 'llm_module': {'calls': 0, 'time': 0}, 'supervisor': {'compilation_time': 0, 'compiled_modules': 0, 'precompile_hits': 0}, 'web_module': {'calls': 0, 'time': 0}}, 'file': 'src/lib.rs:611', 'level': 'info'}], 'result': '{\"kind\": \"VM_ERROR\", \"message\": \"invalid_contract runner malformed\"}'})",
+        "error_code": null,
+        "elapsed_s": 1.52,
+        "note": "an accepted runner returns a schema; a rejected one returns VM_ERROR",
+        "runner_hash": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
+        "accepted": false,
+        "error_summary": "VM_ERROR: invalid_contract runner malformed",
+        "genvm_versions_seen": [
+          "v0.3.0-rc7-x86_64-linux-release"
+        ],
+        "genvm_versions_seen_note": "Parsed from the GenVM log attached to the failure. This is the version the live target runs, read from the target itself."
+      }
+    ],
+    "accepted_runner": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng",
+    "resolution": "Probed against the live target. The previously working build's hash is the one the node accepts; the hash named in the published docs is rejected by this target."
+  },
+  "stub_contract": {
+    "path": "contracts/m0_stub_probe.py",
+    "source_sha256": "c9934308f5a8253fbd520ba5ff1632f4e898ed6c9c1902846db06b5a96980f0f",
+    "purpose": "M0 gate only. Superseded by contracts/contest_receipt.py at M3."
+  },
+  "deployment": {
+    "transaction_id": "0xd9121029480de010f73328cc85588ee07949aa1db6dbcecea15b77a972e3699a",
+    "lifecycle": "finalized",
+    "schema": {
+      "methods": [
+        "probe"
+      ],
+      "method_count": 1
+    },
+    "fee_distribution": {
+      "leaderTimeunitsAllocation": 100,
+      "validatorTimeunitsAllocation": 200,
+      "appealRounds": 0,
+      "executionBudgetPerRound": 25000000000000000,
+      "executionConsumed": 0,
+      "totalMessageFees": 0,
+      "rotations": [
+        3
+      ],
+      "maxPriceGenPerTimeUnit": 2,
+      "storageFeeMaxGasPrice": 300000000,
+      "receiptFeeMaxGasPrice": 300000000
+    },
+    "wait_seconds": 33.6,
+    "elapsed_seconds": 46.6,
+    "outcome": "accepted",
+    "contract_address": "0xCe8184167e121b68ea1d60246DaB1CFB63d45358",
+    "consensus_result": "MAJORITY_AGREE",
+    "execution_result": "FINISHED_WITH_RETURN",
+    "triggered_on": null,
+    "rounds": 0,
+    "reread_after_finalized": true,
+    "note": "Read after the lifecycle reported Finalized. A record read before finalization still carries in-flight consensus fields.",
+    "deployed_contract_balance_wei": 0
+  },
+  "gate": {
+    "status": "passed",
+    "reason": "The pinned runner was accepted by the live target, a one-method stub contract derived a schema, deployed on chain 61997, and its transaction reached Finalized.",
+    "problems": []
+  },
+  "explorer": {
+    "base_url": "https://explorer-studio-dev.genlayer.com",
+    "checks": {
+      "address": {
+        "url": "https://explorer-studio-dev.genlayer.com/address/0xCe8184167e121b68ea1d60246DaB1CFB63d45358",
+        "http_status": 200,
+        "attempts_log": [
+          200
+        ],
+        "resolved": true
+      },
+      "transaction": {
+        "url": "https://explorer-studio-dev.genlayer.com/tx/0xd9121029480de010f73328cc85588ee07949aa1db6dbcecea15b77a972e3699a",
+        "http_status": 200,
+        "attempts_log": [
+          200
+        ],
+        "resolved": true
+      }
+    }
+  }
+}

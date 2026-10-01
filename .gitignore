@@ -1,0 +1,46 @@
+# Secrets — never commit
+.env
+.env:Zone.Identifier
+*.key
+*.keystore
+accounts.json
+
+# Local environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vercel/
+*.log
+
+# Deliberately unused: a local SQLite database exists in the real .env and is
+# NOT part of this project. The contract is the record.
+local.db
+*.sqlite
+*.sqlite3
+
+# Build and evidence artefacts that are regenerated, not authored
+artifacts/
+
+# Third-party competitor sources, not ours to redistribute.
+#
+# evidence/competitor-hackathon-judge-contract.py and
+# evidence/competitor-hackathon-judge-scorecards-contract.py were retrieved from
+# github.com/Demigodd00/demigodd00-genlayer-apps, whose LICENSE is
+# "Demigodd00 GenLayer Apps Proprietary License ... All rights reserved ...
+# no permission is granted to copy, modify, distribute, host, publish, or
+# create derivative works."
+#
+# They are kept on disk so the competitive analysis in HANDOFF.md section 5 can
+# be re-checked, and this repository is not published. If this repo is ever made
+# public, delete these two files first.
+# See state/reviews/2026-10-01-hackathon-discovery/evidence/THIRD-PARTY.md
+state/reviews/2026-10-01-hackathon-discovery/evidence/competitor-hackathon-judge-contract.py
+state/reviews/2026-10-01-hackathon-discovery/evidence/competitor-hackathon-judge-scorecards-contract.py

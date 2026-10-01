@@ -1,0 +1,16 @@
+# Pinned from the live target and the previously scoring 360/400 build.
+# See docs/VERIFICATION.md for which of these were measured and which were not.
+#
+# Contract runner pin, verified by probe against Studio-dev and recorded in
+# docs/VERIFICATION.md. This is a contract header value, not a pip dependency;
+# it is repeated here so a reader finds both pins in one place.
+#   py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
+
+genlayer-py==0.19.0rc2
+
+# Direct tests. The 360/400 build ran these with GENVM_VERSION=v0.6.0-rc5
+# because the contract header targets the older v0.3 SDK layout. Not yet
+# installed or run in this checkout: M4.
+# genlayer-test==0.29.2
+
+pytest==7.4.4
