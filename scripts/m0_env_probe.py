@@ -15,14 +15,20 @@ What it does, in order:
    ``gen_getContractSchemaForCode`` and records which the node accepts. The
    accepted hash is the one the real contract must use; the plan warns that the
    published docs and the previously working build disagree.
-3. Deploys ``contracts/m0_stub_probe.py`` and waits for ``Finalized``. A fee
-   distribution is estimated and passed explicitly; without one the consensus
-   contract rejects the transaction with ``FeesDistributionMissing``.
+3. Deploys the contract and waits for ``Finalized``. A fee distribution is
+   estimated and passed explicitly; without one the consensus contract rejects
+   the transaction with ``FeesDistributionMissing``.
 4. Re-reads the transaction record after the wait, because a record read before
    finalization still carries in-flight consensus fields, and because a
    simplified receipt does not name the fields it omits.
 5. Checks that the address and transaction resolve on the Studio-dev explorer.
 6. Writes ``docs/evidence/m0-<date>.json``.
+
+**The M0 stub is retired.** ``contracts/m0_stub_probe.py`` was removed once
+``contracts/contest_receipt.py`` deployed, and this script now probes the real
+contract by default. The original M0 evidence file is left exactly as recorded —
+it describes the stub, and rewriting it to match a later contract would make the
+record untrue. Pass ``--contract`` to probe any contract.
 
 Secrets are read from the process environment only. No secret value is printed
 or persisted.
@@ -61,7 +67,7 @@ CANDIDATE_RUNNERS = (
     "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6",
 )
 
-STUB_RELATIVE_PATH = "contracts/m0_stub_probe.py"
+STUB_RELATIVE_PATH = "contracts/contest_receipt.py"
 
 REPORTED_VARS = (
     "GENLAYER_STUDIO_DEV_RPC",
@@ -245,7 +251,7 @@ def main() -> int:
 
     stub_source = contract_source(accepted[0]["runner_hash"]) if accepted else contract_source(CANDIDATE_RUNNERS[0])
     source_sha256 = hashlib.sha256(stub_source.encode()).hexdigest()
-    log(f"   stub source sha256 = {source_sha256}")
+    log(f"   contract source sha256 = {source_sha256}")
 
     record = {
         "artifact": "m0-environment-and-pins",
@@ -287,7 +293,7 @@ def main() -> int:
     if args.skip_deploy or not accepted:
         record["gate"] = {"status": "not-evaluated", "reason": "deploy not attempted"}
     else:
-        log("\n== 5. deploy the stub and wait for Finalized ==")
+        log("\n== 5. deploy and wait for Finalized ==")
         distribution = client.estimate_fees_distribution()
         log(f"   fee distribution = {distribution}")
         deployed = deploy_and_wait(client, account, stub_source, distribution)

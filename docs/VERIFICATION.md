@@ -20,7 +20,7 @@ Status vocabulary:
 | M0 · environment and pins | stub deploys, reaches `Finalized` on chain 61997, schema derivable, `genvm-lint check` clean | **passed** |
 | M1 · consensus spike | measured convergence number, decided comparison mode | **passed** — 6/6 converged, 2-bucket. Read the caveats before relying on it |
 | M2 · repo skeleton | `npm run build` succeeds, stub `index.html` serves | **passed** |
-| M3 · deterministic core | 9+ methods on the live probe, no `raise` in a payable method, no clock read sharing a method with a transfer. A lint step can only be claimed if a tool is found that runs | pending |
+| M3 · the contract | both checks clean, 9+ methods on the live probe, no `raise` in a payable method, no clock read with a transfer | **passed on the AST half, the live probe and the rule audit; the linter's SDK-validation half is `unverified` (network-blocked). One environment finding forced a design change; read it** |
 | M3.5 · bounded LLM criterion | optional; the product is complete without it | pending |
 | M4 · direct tests | 45+ tests, pytest line pasted verbatim below | pending |
 | M5 · frontend | build succeeds, real lifecycle, business and lifecycle state shown separately | pending |
@@ -265,6 +265,138 @@ server · page title.
    contract header targets the older SDK layout. That is what the 360/400 build
    did, and it is recorded in `gltest.config.yaml` with the reason. When a direct
    test disagrees with the live target, the live target is right.
+
+## M3 · the deterministic core
+
+Machine-generated evidence: [`m3-rule-audit-2026-10-01.json`](evidence/m3-rule-audit-2026-10-01.json)
+and [`m3-smoke-2026-10-01.json`](evidence/m3-smoke-2026-10-01.json).
+Reproduce with `scripts/m3_contract_gate.py` (the rule audit) and
+`scripts/m3_smoke_test.py --address <deployed>` (the functional check).
+Record: `state/reviews/2026-10-01-m3-contract/`.
+
+| Check | Evidence | Status |
+| --- | --- | --- |
+| `genvm-lint` — AST half | `genvm-lint lint contracts/contest_receipt.py` → `✓ Lint passed (3 checks)`, exit 0. Local, no network, reproduced on every revision | passed |
+| `genvm-lint` — SDK validation half | **unverified in this run.** `genvm-lint check` and `genvm-lint validate` both hang with no output for >10 min, and an earlier attempt failed with `✗ Validation failed / Failed to load SDK: The read operation timed out`. The same commands **passed** on the M0 stub and the M1 spike in this same session, so the tool works and this is transport, not the contract. Not claimed as a pass | **unverified** |
+| Live schema probe, raw JSON-RPC | **14 methods** — 8 writes, 6 views. Floor was 9 | passed |
+| No revert in a payable method | audited transitively, not by scanning for `raise`. Both payable methods catch `Exception` and a `UserError`, so no input can revert them | passed |
+| No clock read sharing a method with a transfer | **vacuous** — this runner has no clock. `claim_payout` and `cancel_program` move value and read nothing time-like | passed, with a caveat |
+| No model in the decision path | `exec_prompt`, `prompt_comparative`, `prompt_non_comparative`, `strict_eq` — none present | passed |
+| `gl.vm.run_nondet`, not `run_nondet_unsafe` | present / absent respectively | passed |
+| Storage caps are named constants | 15 `MAX_*` constants, listed in the audit JSON | passed |
+| Deployed and finalized | deploy `0x1a8cc8b3…` → `0xC96156B72404E50e2bF319934c57c285545588FA`, `finalized`/`accepted`, `MAJORITY_AGREE`, `FINISHED_WITH_RETURN`, explorer 200. Smoke on that address: `open_program` `0x83e59729…` (on the previous, identical deployment `0x26245c07…`) and `cancel_program` `0x842c44ec…`, both `finalized` | passed |
+| **The refund path returns the pool** | `cancel_program` `0x842c44ec…` → contract balance **1000 → 0**, observed. Also `0x17612cfd…` on the previous identical deployment | passed |
+| A repeat cancel does not pay twice | second `cancel_program` moved nothing; status stayed `CANCELLED` | passed |
+| Criteria snapshotted at open | `get_program` returned exactly the 3 declared criteria, in order | passed |
+| Verdict readable through a view | `get_program`, `get_entry`, `get_receipt`, `get_accuracy`, `get_receipt_digest` all read back from storage; 11/11 smoke checks | passed |
+| `freeze_entry` and the rest of the lifecycle | **not exercised.** `freeze_entry` is the only non-deterministic method and needs real repositories; M6 runs it. Challenge, finalize, payout need a frozen entry first | not started |
+| 45+ direct tests | M4 | not started |
+
+### The finding that changed the design: there is no clock on this runner
+
+**`gl.vm.get_timestamp()` raises `SystemError: 2: inval` on Studio-dev.** It is
+the only time accessor in the pinned std library, and it is broken.
+
+This was not inferred. Three throwaway diagnostic contracts were deployed to
+isolate it, and the second one named the culprit exactly:
+
+| Diagnostic | Result |
+| --- | --- |
+| storage write in a helper, read back | `contains: true` — helper writes persist, `in` works, unwritten keys raise `KeyError` |
+| validator steps, one at a time | `is_bounded` (generator expression **and** plain loop), `json.loads`, `canonical_json`, and the criteria validator **all passed**; `criteria_unpack` returned `count=3 len=138` |
+| **`gl.vm.get_timestamp()`** | **`RAISED SystemError: 2: inval`** |
+
+Consequences, all recorded in the contract rather than papered over:
+
+1. **`_now()` is now a documented refusal, not a working clock.** The contract
+   does not pretend to read time.
+2. **Rule 5 is vacuous, and is kept anyway.** "Never combine a clock read with a
+   transfer" was written for a clock this runner does not have. It is retained as
+   a constraint rather than quietly deleted, and `claim_payout` / `cancel_program`
+   are still clock-free so the separation survives if a clock appears.
+3. **The deadline guarantee is unaffected, and is actually the stronger form.**
+   `commit_predates_deadline` compares GitHub's signed `committer.date` against
+   the absolute deadline the organiser fixed at open. That is arithmetic every
+   validator repeats, and it proves *when the work existed* rather than when a
+   transaction arrived. The point-in-time proof — the wedge — never needed a
+   clock.
+4. **What is genuinely lost: arrival-time policy.** A late submission is no
+   longer rejected, and the challenge window is recorded but not enforced by the
+   contract. This is a real capability reduction and is listed as a limitation
+   rather than dressed up. `get_program` exposes `no_clock_on_this_runner: true`
+   so the contract states it in its own data rather than only in a doc.
+5. **The reference build never read a clock either.** Reading
+   `typed_grant_covenant.py` again, there is no `get_timestamp` in it at all —
+   the plan's claim that it "reads the clock in a callback" described an
+   intention, not the code that shipped. So this is the plan and the reference
+   build both being wrong in the same direction, and the live target is the only
+   thing that caught it.
+
+### A second finding: a payable method that refuses strands value anyway
+
+The first smoke run exposed a real hazard, and it is the hazard rule 4 exists to
+prevent.
+
+`open_program` read the clock, and the clock threw. The throw was caught by the
+method's own `except Exception`, which returned a refusal — so the transaction
+**finalized successfully**, 1000 GEN arrived, and no programme was created. The
+run reported "open_program finalized: PASS". The value was stranded, the refusal
+was recorded nowhere, and the only reason it was found at all is that the smoke
+test then read `get_program` and got `unknown programme`.
+
+Two defects, both fixed:
+
+1. **A catch-all refusal is not a safe payable path.** Reverting is forbidden
+   because it strands value; returning a refusal strands it just as surely if the
+   method already took the money. The fix is that `open_program` now **always
+   creates the programme row once value has arrived**. If the terms are
+   invalid, the row is created with status `CANCELLED` and the pool locked, so
+   the owner is one `cancel_program` call from recovering. The reason is stored
+   in `program_error` and readable through `get_program`, so a refusal is never
+   invisible again.
+2. **Reading a write's return value is not possible** — M1's finding 8, hit again.
+   `record["data"]` is input calldata, and the accepted result is base64 in
+   `consensus_data.validators[*].result`. It took decoding a consensus receipt by
+   hand to see `SystemError: 2: inval`, which is exactly the workflow rule 7
+   exists to prevent. The contract now records its own refusals in storage, so
+   the frontend and the runner read a view.
+
+The refund path is therefore load-bearing rather than decorative, and it is
+proved: **1000 in, 0 out, balance observed changing.**
+
+### Failed and superseded M3 observations
+
+**A first `open_program` stranded 1000 GEN.** Deploy
+`0xb8db801ab4906cd9fa0f2c3a95c4e35b8ac2b0d63d662b7e389dccc209aa8f0b` →
+`0xCD812a8aDD0A6F3780C9CB9c90B50393feb4954F`, `finalized`/`accepted`. Its
+`open_program` `0xa3d27737aa85027fb77a5238b3b92276d8feaf29efd1491ffa7dd872564ee8f7`
+also finalized and the balance rose to 1000 — with no programme. Recorded here
+because "the transaction finalized" and "the contract worked" are different
+claims, and this is the case where they diverged.
+
+**Three diagnostic contracts were deployed and then deleted.**
+`0x7F9AE04bF5958d074d0ae3bbD8DF95953eD47915` (storage semantics) and
+`0xE85cf84BBed4E1F70E9AE6b3e360f8d061B08f58` (validator steps) found the clock
+bug. The third, a clock-source probe, failed to deploy with `exit_code 1` — it
+imported `genlayer._internal.*` at module scope, which a contract may not do.
+Not retried: by then the standard library had already been read directly and
+`get_timestamp` was the only accessor, so a third deploy could not have changed
+the conclusion.
+
+### One discrepancy in the brief, reported rather than silently resolved
+
+The plan's §5 M3 header says **"13 public methods: 8 writes + 5 views"** while
+its own method table lists **8 writes and 6 views = 14**. Both counts appear in
+the corrected plan text. The implemented surface is **14 (8 writes, 6 views)**:
+`open_program`, `submit_entry`, `freeze_entry`, `challenge`,
+`finalize_program`, `claim_payout`, `cancel_program`, `_on_entry_finalized`, and
+`get_program`, `get_entry`, `get_receipt`, `get_accuracy`,
+`get_receipt_digest`, `get_contract_balance`.
+
+`get_challenge` is **not** present, as instructed — the receipt is the challenge
+log. The 14th is the internal finalization callback, which the plan's own table
+lists. The plan's cut rule is "if the implemented count exceeds 14, cut a view",
+so 14 is inside the stated tolerance and no capability was cut to reach it.
 
 ## Evidence rules
 

@@ -1,0 +1,275 @@
+{
+  "artifact": "m3-contract-rule-audit",
+  "generated_by": "scripts/m3_contract_gate.py",
+  "observed_on": "2026-10-01T15:35:45+00:00",
+  "contract": "contracts/contest_receipt.py",
+  "method_count": 14,
+  "public_method_count": 13,
+  "internal_callback_count": 1,
+  "methods": [
+    {
+      "name": "open_program",
+      "decorators": [
+        "gl.public.write.payable"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": true,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": [
+        "Exception",
+        "gl.vm.UserError"
+      ]
+    },
+    {
+      "name": "submit_entry",
+      "decorators": [
+        "gl.public.write"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": [
+        "gl.vm.UserError"
+      ]
+    },
+    {
+      "name": "freeze_entry",
+      "decorators": [
+        "gl.public.write"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "challenge",
+      "decorators": [
+        "gl.public.write.payable"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": true,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": [
+        "Exception",
+        "gl.vm.UserError"
+      ]
+    },
+    {
+      "name": "finalize_program",
+      "decorators": [
+        "gl.public.write"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "claim_payout",
+      "decorators": [
+        "gl.public.write"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": true,
+      "raises_directly": false,
+      "can_revert": false,
+      "catches": []
+    },
+    {
+      "name": "cancel_program",
+      "decorators": [
+        "gl.public.write"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": true,
+      "raises_directly": false,
+      "can_revert": false,
+      "catches": []
+    },
+    {
+      "name": "get_program",
+      "decorators": [
+        "gl.public.view"
+      ],
+      "is_write": false,
+      "is_view": true,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "get_entry",
+      "decorators": [
+        "gl.public.view"
+      ],
+      "is_write": false,
+      "is_view": true,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "get_receipt",
+      "decorators": [
+        "gl.public.view"
+      ],
+      "is_write": false,
+      "is_view": true,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "get_accuracy",
+      "decorators": [
+        "gl.public.view"
+      ],
+      "is_write": false,
+      "is_view": true,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "get_receipt_digest",
+      "decorators": [
+        "gl.public.view"
+      ],
+      "is_write": false,
+      "is_view": true,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    },
+    {
+      "name": "get_contract_balance",
+      "decorators": [
+        "gl.public.view"
+      ],
+      "is_write": false,
+      "is_view": true,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": false,
+      "catches": []
+    },
+    {
+      "name": "_on_entry_finalized",
+      "decorators": [
+        "gl.public.write"
+      ],
+      "is_write": true,
+      "is_view": false,
+      "payable": false,
+      "reads_clock": false,
+      "moves_value": false,
+      "raises_directly": false,
+      "can_revert": true,
+      "catches": []
+    }
+  ],
+  "findings": [
+    {
+      "rule": "no revert in any method that received value",
+      "basis": "a revert in a payable method strands that value",
+      "payable_methods": [
+        "challenge",
+        "open_program"
+      ],
+      "reachable_revert_helpers": {},
+      "offenders": [],
+      "passed": true
+    },
+    {
+      "rule": "no clock read sharing a method with a value transfer",
+      "basis": "Studio-dev's stale fee-estimator clock reverts that combination",
+      "clock_readers": [],
+      "value_movers": [
+        "cancel_program",
+        "claim_payout"
+      ],
+      "offenders": [],
+      "passed": true
+    },
+    {
+      "rule": "no model entry point anywhere in the contract",
+      "basis": "the deterministic core must be arithmetic over authoritative data",
+      "symbols_found": [],
+      "passed": true
+    },
+    {
+      "rule": "use gl.vm.run_nondet, never run_nondet_unsafe",
+      "basis": "the pinned runner's std library exports no run_nondet_unsafe",
+      "uses_run_nondet": true,
+      "uses_run_nondet_unsafe": false,
+      "passed": true
+    },
+    {
+      "rule": "every storage bound is a named constant",
+      "basis": "the plan requires the cap to be stated, not implied",
+      "caps": {
+        "RESPONSE_BYTES": 200000,
+        "STORED_PATHS": 64,
+        "PATH_LENGTH": 96,
+        "NAME_LENGTH": 120,
+        "REPO_LENGTH": 200,
+        "URL_LENGTH": 512,
+        "STACK_LENGTH": 200,
+        "CLAIMS_LENGTH": 2000,
+        "CRITERIA_LENGTH": 4000,
+        "FLAGS_LENGTH": 512,
+        "GROUND_LENGTH": 64,
+        "SLUG_LENGTH": 40,
+        "COMMIT_LENGTH": 40,
+        "CRITERIA": 5,
+        "WEIGHT": 10
+      },
+      "passed": true
+    }
+  ],
+  "passed": true
+}

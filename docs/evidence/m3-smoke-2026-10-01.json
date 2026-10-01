@@ -1,0 +1,107 @@
+{
+  "artifact": "m3-smoke-test",
+  "generated_by": "scripts/m3_smoke_test.py",
+  "observed_on": "2026-10-01T16:18:47+00:00",
+  "contract_address": "0xC96156B72404E50e2bF319934c57c285545588FA",
+  "pool": 1000,
+  "criteria": [
+    {
+      "key": "commit_predates_deadline",
+      "weight": 3
+    },
+    {
+      "key": "declared_language_present",
+      "weight": 2
+    },
+    {
+      "key": "required_files_present",
+      "weight": 1
+    }
+  ],
+  "open_program": {
+    "method": "open_program",
+    "transaction_id": "0x816dc0c6d084b91e5c04ceeb9bbbb9c60d90e05c4a92591ae6d567abf8ac583e",
+    "lifecycle_state": "finalized",
+    "outcome": "accepted",
+    "execution_result": "FINISHED_WITH_RETURN",
+    "seconds": 46.5
+  },
+  "cancel_program": {
+    "method": "cancel_program",
+    "transaction_id": "0x842c44ece790a555113fceb6f32dad248c5cfe5ec192855457745cb448cc1284",
+    "lifecycle_state": "finalized",
+    "outcome": "accepted",
+    "execution_result": "FINISHED_WITH_RETURN",
+    "seconds": 50.9
+  },
+  "checks": [
+    {
+      "check": "get_contract_balance",
+      "passed": true,
+      "detail": "balance=0"
+    },
+    {
+      "check": "open_program finalized",
+      "passed": true,
+      "detail": "finalized/accepted"
+    },
+    {
+      "check": "get_program shows the locked pool",
+      "passed": true,
+      "detail": "pool=1000 locked=1000"
+    },
+    {
+      "check": "criteria snapshotted at open",
+      "passed": true,
+      "detail": "3 criteria stored"
+    },
+    {
+      "check": "programme status is OPEN",
+      "passed": true,
+      "detail": "OPEN"
+    },
+    {
+      "check": "get_accuracy returns a record",
+      "passed": true,
+      "detail": "keys=12"
+    },
+    {
+      "check": "get_receipt_digest returns a 32-byte hash",
+      "passed": true,
+      "detail": "len=64 prefix=none"
+    },
+    {
+      "check": "contract holds the locked pool",
+      "passed": true,
+      "detail": "balance=1000 (expected 1000)"
+    },
+    {
+      "check": "cancel_program finalized",
+      "passed": true,
+      "detail": "finalized/accepted"
+    },
+    {
+      "check": "contract balance returned to zero after the refund",
+      "passed": true,
+      "detail": "balance=0 (was 1000)"
+    },
+    {
+      "check": "repeat cancel does not move value",
+      "passed": true,
+      "detail": "balance=0 status=CANCELLED"
+    }
+  ],
+  "passed": true,
+  "not_exercised": [
+    "freeze_entry \u2014 the only non-deterministic method; M6 runs it against real repositories",
+    "challenge, finalize_program, claim_payout, cancel_program \u2014 each needs a frozen entry first"
+  ],
+  "explorer": {
+    "url": "https://explorer-studio-dev.genlayer.com/address/0xC96156B72404E50e2bF319934c57c285545588FA",
+    "http_status": 200,
+    "attempts_log": [
+      200
+    ],
+    "resolved": true
+  }
+}

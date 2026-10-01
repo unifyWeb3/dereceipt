@@ -125,12 +125,28 @@ Each is a measured fact or a measured failure, not a preference.
    linter passed a contract the node rejected with `NameError: name 'u32' is
    not defined`; AST lint does not resolve names. The live probe is not the
    weaker check — it catches what the linter cannot.
-4. **`raise` is forbidden in any method that received value.** A revert in a
-   payable method strands that value.
-5. **No clock read in a method that moves value.** Studio-dev's fee estimator
-   runs on a badly stale clock, so combining the two reverts
-   `out_of message_fee total`. The callback reads the clock and moves nothing; a
-   separate method moves value and reads no clock.
+4. **`raise` is forbidden in a method that received value — and so is a silent
+   refusal.** A revert in a payable method strands that value. So does returning
+   a refusal once the money has already arrived, which is less obvious and was
+   the real M3 failure: `open_program` read the clock, the clock threw, a
+   catch-all swallowed it, the transaction *finalized successfully*, 1000 GEN
+   arrived, and no programme existed. `open_program` therefore **always** creates
+   the programme row once value has arrived — invalid terms yield a `CANCELLED`
+   programme with the pool locked, one `cancel_program` call from recovery — and
+   the reason is stored so it is readable through a view. A refusal recorded
+   nowhere is indistinguishable from a success.
+5. **No clock read in a method that moves value — currently vacuous, and kept
+   anyway.** Studio-dev's fee estimator runs on a badly stale clock, so combining
+   the two reverts with `out_of message_fee total`. **Measured at M3: this runner
+   has no usable clock at all.** `gl.vm.get_timestamp()` raises
+   `SystemError: 2: inval` and is the only time accessor in the pinned std
+   library. The contract reads no clock anywhere, which makes this rule *vacuous*
+   rather than satisfied — a distinction worth being precise about. It is kept as
+   a constraint, and `claim_payout` / `cancel_program` remain clock-free so the
+   separation survives if a clock ever appears. The cost is that **arrival-time
+   policy is not enforced by the contract**: a late submission is accepted, and
+   the challenge window is recorded but not enforced. The deadline *guarantee* is
+   unaffected and is the stronger form — see rule 10.
 6. **Transfers use `gl.evm.contract_interface`.** The plain `on="finalized"`
    path produces receipts with `skipped=true` and the balance never moves. That
    was measured: a 22.6 GEN real balance against 4.7 GEN of books.
@@ -143,6 +159,14 @@ Each is a measured fact or a measured failure, not a preference.
    a weight and a criterion never change after open.
 9. **The original verdict is never overwritten.** A challenge outcome is
    recorded *beside* it. The receipt is append-only.
+10. **The deadline is proven by GitHub's clock, not the chain's.** The
+    point-in-time guarantee — that the work existed before the rules closed — is
+    `commit.committer.date` compared against the absolute deadline the organiser
+    fixed at open. That is arithmetic every validator repeats, over a
+    GitHub-signed timestamp no entrant can forge afterwards, and it needs no
+    block clock. It proves *when the work existed*, which is the claim being
+    made; what it does not prove is *when the transaction arrived*, and with no
+    usable clock the contract cannot and does not claim to.
 
 ## A contested criterion is not a validator objection
 
