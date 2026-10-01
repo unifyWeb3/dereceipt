@@ -369,16 +369,7 @@ there, not three milestones later.
 chain 61997. **Result: passed with one gap** — no local linter was run; see
 §10a for the correction and the fix.
 
-### M1 · Consensus spike (3 h) — **the de-risking gate**
-
-Throwaway contract. One subjective criterion, 3 real repositories, run
-`run_panel` on each. Log for each run: did consensus hold, how long, what bucket.
-
-- 3/3 converge → proceed with 2-bucket strict comparison.
-- Any `UNDETERMINED` → switch to 3-bucket and re-test.
-
-**Gate:** a measured convergence number and a decided comparison mode. This
-decides the one design parameter the LLM touches, for the cost of half a day.
+### M1 · Consensus spike (3 h) — **the de-risking gate** ✅ *done, see §10b*
 
 ### M2 · Repo skeleton (1 h)
 
@@ -653,7 +644,7 @@ when its observation exists, and the evidence goes in `docs/evidence/`.
 | Requirement | Inspect | Acceptance evidence | Status |
 | --- | --- | --- | --- |
 | M0 deploys on 61997 | `gen_getContractSchemaForCode`, deploy tx | stub `Finalized`, address on explorer-studio-dev, runner hash probed not copied | **passed** — linter half unverified (§10a) |
-| M1 convergence measured | M1 log | convergence count for 3 real repos; comparison mode decided | pending |
+| M1 convergence measured | M1 evidence JSON + aggregate | **6/6**, 2-BUCKET ±0, 0 undetermined, 0 rounds. `INCONSISTENT` unexercised — recorded as failed (§10b) | passed with a caveat |
 | Deterministic core has no LLM | `contracts/*.py` | no `exec_prompt` in the deterministic path | pending |
 | Point-in-time proof works | receipt for a real commit | `committer.date` < deadline shown on chain | pending |
 | Declared-vs-measured refutes | entry B | declared `typescript`, no `.ts` → `CLAIM_REFUTED` | pending |
@@ -778,6 +769,72 @@ were exercised from a clean environment. I re-scanned every file outside `.env`
 for the three secret values in your `.env` — **no leak**. `.gitignore` covers
 `.env` and `.venv`. The 64-hex literals in the docs are public transaction IDs,
 and the stub's `source_sha256` in the evidence matches the file on disk.
+
+---
+
+## 10b. M1 results — resolved 2026-10-01
+
+M1 ran, met its gate, and is committed (`c7aa0cc`). Record:
+`state/reviews/2026-10-01-m1-consensus-spike/`, `REVIEW.md` alongside it.
+
+**Result: 6/6 convergence across two independent passes. 2-BUCKET, compared with
+±0 tolerance.** 0 undetermined, 0 rounds, 55–69 s per run, `CONSISTENT` on all
+six. The accepted bucket was read from **contract storage via a view**, not
+decoded from a receipt.
+
+### What the spike does NOT establish — these are M3 design constraints
+
+1. **`INCONSISTENT` was never exercised.** All six runs answered `CONSISTENT` on
+   three same-organisation repos with honest READMEs. The spike shows 2-bucket
+   does not *spuriously split* on an easy document; it does not show it converges
+   on a **refuted** claim. Closing this needs a repo whose declared stack
+   contradicts its tree — the M6 "Entry B" asset. Logged as a **failed** row in
+   `docs/VERIFICATION.md`, not hidden.
+2. **"Converged" is a bare 3-of-5 majority, not unanimity.** One run
+   (`0x58be9ed2…`) recorded `AGREE 3, DISAGREE 1, IDLE 1` and the network still
+   accepted `CONSISTENT`. A 3-bucket mode would not have rescued it — a
+   `CONSISTENT`/`INCONSISTENT` split inside three buckets is still a split.
+3. **Idle validators are the norm.** 1–2 of 5 produced nothing in **every** run.
+   **M3 must not present a "contested criteria" count as a count of validator
+   objections.** A criterion the jury cannot settle stays on the record — which
+   is the product's own framing and survives this — but the two numbers are not
+   interchangeable.
+
+M1 met the gate, so **M3.5 is not blocked**. It stays optional and keeps the
+"cannot move money" framing, precisely because of caveat 1.
+
+### The linter gap is closed
+
+`genvm-linter` 0.11.1-rc.2, installed from the 360/400 build's exact commit
+`28450e66…`, pinned in `requirements-dev.txt`. It lints and validates
+`contracts/m1_panel_spike.py` clean. **M3 must run both checks** — see below.
+
+### Three more environment facts, and a correction to §10a
+
+1. **The published docs describe an API this runner does not have.** The
+   equivalence-principle page now recommends `gl.vm.run_nondet_unsafe`; the
+   accepted runner's `runner.json` exports `run_nondet` and `run_nondet_default`
+   and **no** `run_nondet_unsafe`. **Use `gl.vm.run_nondet`.** Docs-current code
+   would `AttributeError` at runtime. This is the second time the live target has
+   contradicted the published docs.
+2. **The AST linter passes code the node rejects.** `genvm-lint` reported clean on
+   a contract the live schema probe killed with
+   `NameError: name 'u32' is not defined` — AST lint does not resolve names.
+   **This corrects §10a, where I called the live probe "the weaker substitute."
+   It is not weaker — it caught a real defect the linter missed.** M3 runs
+   `genvm-lint check` *and* the raw-JSON-RPC schema probe, and both must pass.
+3. **`record["data"]` is a write's input calldata, not its return.** The accepted
+   result lives only in `consensus_data.validators[*].result`, base64, in a format
+   this SDK does not decode. **The product must therefore store its verdicts and
+   expose them via `@gl.public.view`.** The frontend reads views, never receipts,
+   to show a verdict. This is now a structural requirement, not a preference.
+
+### One process note worth keeping
+
+`--skip-deploy` overwrote the passing M0 evidence file with a not-evaluated one
+mid-session. It was restored from the archive and the script now refuses to do
+it. This is exactly the failure mode that would have made M6's evidence file
+silently empty.
 
 ---
 
