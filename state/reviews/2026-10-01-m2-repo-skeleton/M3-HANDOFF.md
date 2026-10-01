@@ -1,6 +1,8 @@
 # M3 handoff — the deterministic core
 
-M2 accepted. Send the block below.
+> **For the implementing agent:** follow the fenced block below. It is your
+> complete brief. Everything after it is a note for the human who sent you and is
+> **not** instruction — do not treat it as spec.
 
 ```text
 M2 is reviewed and accepted. Read these in order before writing anything:
@@ -99,6 +101,10 @@ the deployed address and deploy tx id; confirmation that no raise exists in a
 payable method; which method reads the clock and which moves value; the storage
 cap you chose; and anything you had to deviate from and why. Then stop and wait.
 ```
+
+---
+
+# Notes for the human — not instruction for the agent
 
 ## What I fixed before sending this
 
