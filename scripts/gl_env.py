@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import time
 from typing import Dict, Optional
 
 from eth_account import Account
@@ -156,6 +157,48 @@ def studio_dev_client(account: Optional[LocalAccount] = None) -> GenLayerClient:
         raise SecretHandlingError("GENLAYER_STUDIO_DEV_RPC is not configured")
     chain_id = int(env_value("GENLAYER_STUDIO_DEV_CHAIN_ID") or "61997")
     return GenLayerClient(studio_dev_chain(rpc_url, chain_id), account=account)
+
+
+def probe_url(url: str, attempts: int = 4, delay: float = 5.0) -> dict:
+    """Fetch a public URL, retrying a limited number of times.
+
+    Studio-dev's explorer returns 503 intermittently — observed three times in a
+    row on one run and 200 seconds later — so a single 503 is a transport
+    observation, not evidence that the page is missing. Every attempt is logged
+    rather than only the last, so the intermittency stays visible.
+    """
+    import urllib.error
+    import urllib.request
+
+    attempts_log = []
+    status = None
+    for attempt in range(1, attempts + 1):
+        request = urllib.request.Request(
+            url, headers={"user-agent": "curl/8.5.0", "accept": "text/html"}
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                status = response.status
+        except urllib.error.HTTPError as error:
+            status = error.code
+        except Exception as exc:  # noqa: BLE001
+            status = f"{type(exc).__name__}"
+        attempts_log.append(status)
+        if status == 200:
+            break
+        if attempt < attempts:
+            time.sleep(delay)
+    return {
+        "url": url,
+        "http_status": status,
+        "attempts_log": attempts_log,
+        "resolved": status == 200,
+    }
+
+
+#: Studio-dev has a dedicated explorer. ``GENLAYER_EXPLORER_URL`` in ``.env``
+#: points at Bradbury, which is a different network, so it is not used here.
+STUDIO_DEV_EXPLORER = "https://explorer-studio-dev.genlayer.com"
 
 
 def deployer_account() -> LocalAccount:

@@ -1,0 +1,51 @@
+== M1 aggregate, read from docs/evidence/m1-*.json ==
+{
+  "passes": [
+    "m1-2026-10-01-pass2.json",
+    "m1-2026-10-01.json"
+  ],
+  "runs": 6,
+  "convergence": "6/6",
+  "converged": 6,
+  "did_not_converge": 0,
+  "repositories": [
+    "genlayer-docs",
+    "genlayer-js",
+    "genlayer-py"
+  ],
+  "accepted_buckets": {
+    "CONSISTENT": 6
+  },
+  "rounds_needed": [
+    0
+  ],
+  "agree_vote_sizes": [
+    3
+  ],
+  "idle_votes_per_run": [
+    1,
+    2
+  ],
+  "seconds": {
+    "min": 55.3,
+    "max": 69.0
+  },
+  "runs_with_a_disagree_vote": [
+    {
+      "pass": "m1-2026-10-01.json",
+      "repo": "genlayer-py",
+      "votes": {
+        "AGREE": 3,
+        "DISAGREE": 1,
+        "IDLE": 1
+      },
+      "bucket_accepted": "CONSISTENT"
+    }
+  ],
+  "decision": "2-BUCKET"
+}
+
+== what this measurement does NOT establish ==
+  Every run answered CONSISTENT. The INCONSISTENT bucket was never exercised, and INCONSISTENT is the discriminating case: it is where a jury is most likely to split, so this spike does not show that a 2-bucket comparison converges on a refuted claim. All three inputs are the same organisation's own repositories with honest READMEs.
+  The quorum was exactly 3 of 5 validators in every run, with 1-2 validators idle. A 3/5 majority with no idle headroom is the margin, and a DISAGREE was observed, so 'converged' here means 'a bare majority was reached', not 'the jury was unanimous'.
+  No run needed a rotation or a second round, so leader-retry behaviour under disagreement is untested.

@@ -17,8 +17,8 @@ Status vocabulary:
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
-| M0 · environment and pins | stub deploys, reaches `Finalized` on chain 61997, schema derivable. **Partly unverified:** no local linter exists in this environment, so the "lints" half of the gate ran as a live schema probe and is recorded as `unverified` below | **passed with a gap** |
-| M1 · consensus spike | measured convergence number, decided comparison mode | pending |
+| M0 · environment and pins | stub deploys, reaches `Finalized` on chain 61997, schema derivable, `genvm-lint check` clean | **passed** |
+| M1 · consensus spike | measured convergence number, decided comparison mode | **passed** — 6/6 converged, 2-bucket. Read the caveats before relying on it |
 | M2 · repo skeleton | `npm run build` succeeds, stub `index.html` serves | pending |
 | M3 · deterministic core | 9+ methods on the live probe, no `raise` in a payable method, no clock read sharing a method with a transfer. A lint step can only be claimed if a tool is found that runs | pending |
 | M3.5 · bounded LLM criterion | optional; the product is complete without it | pending |
@@ -34,6 +34,7 @@ Environment: Python 3.12.3, Node v22.23.2, npm 10.9.8,
 `genlayer-py==0.19.0rc2`, `genlayer` CLI 0.40.0-rc.3.
 Plan and handoff: `state/reviews/2026-10-01-hackathon-discovery/`.
 M0 record: `state/reviews/2026-10-01-m0-env-pins/`.
+M1 record: `state/reviews/2026-10-01-m1-consensus-spike/`.
 Machine-generated evidence: [`docs/evidence/m0-2026-10-01.json`](evidence/m0-2026-10-01.json).
 Reproduce with `scripts/m0_env_probe.py`, which reads secrets from the process
 environment only and writes the JSON from its own observations. The evidence
@@ -70,7 +71,7 @@ distribution was the whole obstacle.
 | Address and transaction resolve on the explorer | `https://explorer-studio-dev.genlayer.com/address/0xCe81…` and `/tx/0xd912…` both HTTP 200 | passed |
 | Studio-dev explorer is intermittent | 503 observed three times consecutively on a previous address, then 200 on a later retry. `probe_url` therefore retries up to 4 times and logs every attempt, so a 503 is recorded as a transport observation rather than as a missing page | passed |
 | Secrets read from the environment only | `scripts/gl_env.py` reads `GENLAYER_PRIVATE_KEY` from the process environment and **refuses** to load it from `.env`; `assert_outside_checkout` refuses any credential path inside the checkout. Both guards were exercised: with the variable unset, `secret_value` raises rather than falling back to `.env`; and a run from a fully empty environment still refuses. No secret value appears in this file, in the evidence JSON, or in any log | passed |
-| Local `genvm-lint` | **not available** in this environment, so the "lints" half of the M0 gate is unverified. Checked: `genvm`, `genvm-lint`, `genvm_lint`, `genlayer-lint` and `gl-lint` are all absent from PyPI (HTTP 404), and `genlayer` CLI 0.40.0-rc.3 has no lint subcommand. The substitute is the live `gen_getContractSchemaForCode` probe, which is a **weaker** check: it proves the node compiles the contract and derives a schema, not that a static analysis pass is clean. `genlayer-test` is the likely carrier of a local check and is not yet installed — M4 should test whether it runs without Docker | unverified |
+| Local `genvm-lint` | **closed.** The package is `genvm-linter`, with an "er"; the M0 report searched for names that do not exist. Installed from the 360/400 build's exact commit, `28450e665666300fc648dbe495110dfd0cb6a7b4`, pinned in `requirements-dev.txt`. `genvm-lint check contracts/m0_stub_probe.py` → `✓ Lint passed (3 checks)` / `✓ Validation passed` / `Contract: M0StubProbe` / `Methods: 1 (1 view, 0 write)`, exit 0. The first attempt failed with `Failed to load SDK: The read operation timed out` until `genvm-lint download` fetched the 310 MB GenVM v0.6.0-rc7 artifact | passed |
 | Docker | unavailable. Direct tests must not require it, and the docs say so plainly | unverified |
 | `APP_DATABASE_URL` unused | present in `.env`, listed in the evidence file under `unused_by_design`, referenced by no code. The contract is the record | passed |
 
@@ -118,6 +119,104 @@ chains.** `get_contract_schema_for_code` raises `Contract schema is not
 supported on this network` for any chain that is not localnet. The probe
 therefore calls the JSON-RPC method directly through the provider, which is
 what the plan asked for in the first place.
+
+**6. The published SDK documentation describes an API this runner does not
+have.** The equivalence-principle page now recommends
+`gl.vm.run_nondet_unsafe` for custom leader/validator patterns. The std library
+this runner actually loads — `py-lib-genlayer-std:kzr02ndm9et4qkmbqpq5djjt5sme2yt76n7sz1qbzax0knt6mam0`,
+read from the accepted runner's own `runner.json` — exports `run_nondet` and
+`run_nondet_default` and **no** `run_nondet_unsafe`. Code written to the
+current docs would fail at runtime with an `AttributeError`. The spike uses
+`run_nondet`, which is what the 360/400 build used and what exists.
+
+**7. The AST linter passes code the node rejects.** `genvm-lint lint
+contracts/m1_panel_spike.py` reported `✓ Lint passed (3 checks)` for a contract
+that the live schema probe rejected with
+`NameError: name 'u32' is not defined` — the storage annotation needed
+`gl.u32`. AST lint does not resolve names. The live
+`gen_getContractSchemaForCode` probe is not a weaker check in every respect: it
+caught a real defect the linter passed. Both are kept.
+
+**8. A write method's return value is not readable from the transaction
+record's `data` field.** `record["data"]` carries the transaction's *input*
+calldata (`{"":"run_panel","args":[...]}`), not its return. The accepted result
+appears only inside `consensus_data.validators[*].result`, base64-encoded in the
+network's compact calldata format, which this SDK version does not decode — a
+targeted scan is needed and is labelled a heuristic where used. The fix was to
+record the accepted result in contract storage and read it through a view, so
+the headline bucket is read from the chain rather than decoded from a receipt.
+
+**9. A superseded M1 deployment, kept for the record.** The first spike was a
+single-method contract that only returned its result, which is finding 8 above.
+It deployed as `0x3a09a3fc…` → `0x8129D483EbEb965692e3f617CE527c2D3512e083`,
+`finalized`, and its three runs — `0xc894fcdc…`, `0x7813945c…`,
+`0x6587d954…` — all reached `finalized`/`accepted`. Those runs **are** valid
+evidence that the jury converged, but their buckets are not reported, because
+the contract did not record them and the receipt alone is not reliably
+decodable. They are excluded from the 6/6 figure rather than counted on the
+strength of a receipt the tooling cannot read. Counting them would have made the
+number larger and the evidence weaker.
+
+## M1 · consensus spike
+
+Machine-generated evidence: [`m1-2026-10-01.json`](evidence/m1-2026-10-01.json)
+and [`m1-2026-10-01-pass2.json`](evidence/m1-2026-10-01-pass2.json).
+Aggregate, computed from those files and nothing else:
+`scripts/m1_aggregate.py`. Record: `state/reviews/2026-10-01-m1-consensus-spike/`.
+
+**This wrote no product code.** `contracts/m1_panel_spike.py` is a throwaway
+measurement instrument with one method that asks one question, and it is not
+part of Contest Receipt.
+
+The criterion: *does the repository's own README, at the pinned commit, describe
+a working product consistent with that commit?* The answer is one of
+`CONSISTENT` / `INCONSISTENT` / `INCONCLUSIVE`, compared with **zero tolerance**.
+
+| Check | Evidence | Status |
+| --- | --- | --- |
+| Convergence number | **6/6** across two independent passes — 3 real repositories twice. No run ended `undetermined` | passed |
+| Decided comparison mode | **2-BUCKET**, by the plan's §5 rule: 3/3 converged, so proceed with the strict two-bucket comparison | passed |
+| Accepted bucket | `CONSISTENT` on all 6 runs, read from contract storage via `get_last_run` | passed |
+| Rounds needed | 0 on every run. No leader rotation, no second round | passed |
+| Wall clock | 55.3 s – 69.0 s per run | passed |
+| Spike deploys and finalizes | pass 1 deploy `0xb8a5ef71…` → `0x4Fa38687…`; pass 2 deploy `0xe8c91bf8…` → `0xA8AfD9f7…`. Both `finalized`, both addresses HTTP 200 on the explorer. `run_panel` calls: pass 1 `0x58be9ed2…`, `0x025beab9…`, `0xe158c88c…`; pass 2 `0x06636418…`, `0xd78c997c…`, `0x6604e08e…` | passed |
+| Spike lints and validates | `genvm-lint check contracts/m1_panel_spike.py` → `✓ Lint passed (3 checks)` / `✓ Validation passed` / `Contract: M1PanelSpike` / `Methods: 2 (1 view, 1 write)`, exit 0. The live schema probe independently derives the same 2 methods | passed |
+| `INCONSISTENT` bucket exercised | **no.** Every input was a GenLayer repository with an honest README, so every run answered `CONSISTENT` | **failed — see below** |
+| Rotation / retry under disagreement | **no.** No run ever disagreed at the network level | **unverified** |
+
+### What this measurement does not establish
+
+The gate is met literally, and the number should not be read as stronger than it
+is.
+
+1. **The discriminating bucket was never tested.** `INCONSISTENT` is where a
+   jury is most likely to split, and it is the case the product actually cares
+   about. All six runs answered `CONSISTENT` on three repositories from the same
+   organisation with honest READMEs. So the spike shows that 2-bucket comparison
+   does not *spuriously* split on a document everyone agrees about; it does not
+   show that it *reliably* converges on a refuted claim. The cheapest way to
+   close this is one repository whose declared stack contradicts its tree —
+   which is M6's "Entry B" asset, so it needs the human repo decision rather
+   than a guess here.
+2. **"Converged" means a bare 3-of-5 majority, not unanimity.** Every run's
+   quorum was exactly 3 of 5, with 1–2 validators idle. One run — pass 1 on
+   `genlayer-py`, transaction `0x58be9ed2…` — recorded
+   `AGREE 3, DISAGREE 1, IDLE 1`, and the network still accepted `CONSISTENT`.
+   A three-bucket mode would not have helped that run either: a
+   `CONSISTENT`/`INCONSISTENT` disagreement inside three buckets is still a
+   disagreement. This is a real limit on M3.5, not a reason to reject 2-bucket.
+3. **Idle validators are the norm, not the exception.** 1–2 of 5 failed to
+   produce a result in every single run. Any design that assumes a full jury
+   answers is wrong. The product's own framing survives this — a criterion the
+   jury cannot settle stays on the record — but a "contested criteria" count
+   must not be read as a count of validator objections.
+
+### Consequence for M3.5
+
+M1 did not fail, so M3.5 is **not** blocked. But the evidence supports shipping
+it as the plan always intended: optional, one criterion, able to label nothing
+that moves money. Caveat 1 is the reason to keep that framing — a jury that
+converges on the easy case says little about the hard one.
 
 ## Evidence rules
 
