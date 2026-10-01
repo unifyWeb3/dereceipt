@@ -394,26 +394,42 @@ README.md  LICENSE  vercel.json
 
 ### M3 · The contract, deterministic core (6 h)
 
-Public surface — **9 public methods total** (5 writes + 4 views), the same
-footprint as the 360 build, so a reviewer can hold both contracts in their head:
+Public surface — **13 public methods: 8 writes + 5 views.** This is larger than
+the 360 build's 9, and deliberately so: the challenge path, the refund path and
+the accuracy record are three capabilities the 360 build did not have, and those
+are the points.
+
+> **Correction (2026-10-01).** This section previously claimed "9 public methods
+> (5 writes + 4 views)" while the table beneath it listed **15**. The 9 was
+> cargo-culted from the reference build and never matched the design. The real
+> number is 13, after folding `get_challenge` into `get_receipt` — the receipt
+> *is* the challenge log, so a separate view is redundant surface. If the
+> implemented count exceeds 14, cut a view before you cut a capability.
+
+**`submit_entry` and `freeze_entry` are deliberately separate.** Storing the
+entry is cheap and cannot fail on the network. Capturing the evidence is
+expensive, hits `api.github.com` unauthenticated, and can end `UNDETERMINED` on a
+rate limit. Separating them means a throttled freeze is **retried for free**
+instead of stranding a paid stake.
 
 | Method | Kind | Clock? | Moves value? |
 | --- | --- | --- | --- |
 | `open_program(name, criteria_json, deadline_secs, challenge_window_secs, flags_json)` | write.payable | yes | yes (locks pool) |
 | `submit_entry(program_id, repo_url, commit_sha, demo_url, declared_stack, claims_json)` | write.payable | yes | yes (small stake) |
-| `run_panel(program_id, entry_index)` | write | no | no |
+| `freeze_entry(program_id, entry_index)` | write | no | no |
 | `challenge(program_id, entry_index, ground, evidence_url)` | write.payable | yes | yes (bond) |
 | `finalize_program(program_id)` | write | yes | no |
 | `claim_payout(program_id, entry_index)` | write | **no** | **yes** |
 | `cancel_program(program_id)` | write | yes | yes (refund pool) |
 | `_on_entry_finalized(...)` | write (callback) | yes | no |
-| `get_program` · `get_entry` · `get_challenge` · `get_receipt` · `get_accuracy` · `get_receipt_digest` · `get_contract_balance` | view | no | no |
+| `get_program` · `get_entry` · `get_receipt` · `get_accuracy` · `get_receipt_digest` · `get_contract_balance` | view | no | no |
 
-> The 360/400 reference has 9 public methods and **10 tests**. That is the
-> surface-to-test ratio most likely responsible for the missing 40 points. The
-> method count here is deliberately held at the same order; the test count is
-> not. If the contract grows past ~10 public methods, stop and cut scope rather
-> than shipping a surface a reviewer cannot verify.
+`run_panel` is **M3.5 only** — it is the optional bounded-LLM criterion and does
+not exist in M3.
+
+> The 360/400 reference has 9 public methods and **10 tests**. That ratio is
+> most likely why 40 points were missing. 13 methods against a **45+** test
+> target is roughly 3.5 tests per method, which is the point of this build.
 
 Hard rules for the implementation:
 
@@ -435,8 +451,11 @@ Hard rules for the implementation:
 8. **The transfer method reads no clock.** The callback reads the clock and
    moves no value. §4.2.
 
-**Gate:** `genvm-lint check` clean, SDK schema validation passes, and the
-contract reports `9`+ methods on the live Studio-dev probe.
+**Gate:** `genvm-lint check` clean **and** the live `gen_getContractSchemaForCode`
+probe over raw JSON-RPC both pass; the contract derives **≥9 methods** on the
+live probe; no `raise` in any payable method; no clock read sharing a method with
+a transfer. Note the gate is a *floor* of 9, not a target of 9 — the design is
+13.
 
 ### M3.5 · Optional bounded LLM criterion (2 h) — **skip without guilt**
 
