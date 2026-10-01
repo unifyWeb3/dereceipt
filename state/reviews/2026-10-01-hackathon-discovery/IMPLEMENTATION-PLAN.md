@@ -394,17 +394,18 @@ README.md  LICENSE  vercel.json
 
 ### M3 · The contract, deterministic core (6 h)
 
-Public surface — **13 public methods: 8 writes + 5 views.** This is larger than
+Public surface — **14 public methods: 8 writes + 6 views.** This is larger than
 the 360 build's 9, and deliberately so: the challenge path, the refund path and
 the accuracy record are three capabilities the 360 build did not have, and those
 are the points.
 
-> **Correction (2026-10-01).** This section previously claimed "9 public methods
-> (5 writes + 4 views)" while the table beneath it listed **15**. The 9 was
-> cargo-culted from the reference build and never matched the design. The real
-> number is 13, after folding `get_challenge` into `get_receipt` — the receipt
-> *is* the challenge log, so a separate view is redundant surface. If the
-> implemented count exceeds 14, cut a view before you cut a capability.
+> **Correction (2026-10-01, twice).** This section first claimed "9 public
+> methods (5 writes + 4 views)" while its own table listed 15. I corrected it to
+> 13 by folding `get_challenge` into `get_receipt` — the receipt *is* the
+> challenge log — and then miscounted the views a second time: the table lists
+> **six**, not five. The real number is **14** (8 writes + 6 views), which is what
+> M3 shipped. `get_challenge` is correctly absent. The "exceeds 14, cut a view
+> before you cut a capability" rule still holds and was not triggered.
 
 **`submit_entry` and `freeze_entry` are deliberately separate.** Storing the
 entry is cheap and cannot fail on the network. Capturing the evidence is
@@ -484,9 +485,26 @@ Target **45+ tests** (the 360 build had 10). Group them the way the 360 build's
 | Challenge | correct ground, wrong ground, expired window, second challenge refused, bond returned on `DENIED`, bond forfeited on `UPHELD` |
 | **Refund** | `cancel_program` returns the pool exactly; refused after an entry is adjudicated; refused twice; balance conserved |
 | Conservation | offline scenario drives pool in and out to exactly 0, including the refund path |
-| Panel | bucket bounds, confidence decile bounds, `INCONCLUSIVE` never produces a verdict, untargeted criteria untouched by a challenge |
+| Panel | verdict bounds, `INCONCLUSIVE` never produces a verdict, untargeted criteria untouched by a challenge |
 
-**Gate:** all pass, and the output line goes in `docs/VERIFICATION.md` verbatim.
+> **Narrowed 2026-10-01.** M3.5 is being skipped, so `run_panel` does not exist and
+> this group covers no LLM behaviour: bucket/verdict bounds, `INCONCLUSIVE`
+> producing no verdict, and a challenge leaving every untargeted criterion
+> byte-identical. M1 already measured panel convergence (6/6) and that evidence is
+> reused rather than retested.
+
+**Gate:** all pass, **each proven able to fail** — see the mutation requirement
+below — and the pytest output line goes into `docs/VERIFICATION.md` verbatim.
+
+> **The mutation requirement, and why it is not optional.** M3's rule audit
+> shipped three bugs that made it pass wrongly: `ast.walk` emitted
+> `payable.write.public`, `self._fail` dotted-names never resolved so the call
+> graph stayed empty, and the clock/value walk ran forward over callees when the
+> question was which methods *reach* the behaviour. It reported "methods that
+> raise at all: `[]`" while 11 of 14 could revert, both payable ones included. A
+> suite that cannot fail certifies work that does not work. **Break the contract
+> on purpose, confirm a specific test goes red, and report which mutation broke
+> which test.** A green run is not the evidence; a red one is.
 
 ### M5 · Frontend (6 h)
 
@@ -923,6 +941,106 @@ criterion 4 is satisfied by construction rather than retrofitted at M5.
 builds reproduce, but a reviewer reading `package.json` alone sees ranges.
 `genlayer-js` — the one that matters — is exact. Pin the other two exactly if
 `package.json` is touched at M3.
+
+## 10d. M3 results — resolved 2026-10-01
+
+M3 committed `260d613`. Record: `docs/evidence/m3-rule-audit-2026-10-01.json`,
+`docs/evidence/m3-smoke-2026-10-01.json`. **M3.5 is being skipped** — see below.
+
+### The runner has no block clock — verified twice
+
+`gl.vm.get_timestamp()` **exists in the std lib and raises `SystemError: 2: inval`
+at runtime.** Confirmed by three throwaway diagnostic deploys isolating storage
+semantics, validator primitives, and the clock separately, and then by me
+independently: I deployed my own probe (`0x27102bb2…` → `0x80C3158F…`) and read
+it back.
+
+```
+has_attr          -> has_get_timestamp=True; vm_attrs=[... run_nondet, run_nondet_default ...]
+try_get_timestamp -> RAISED:SystemError:2: inval
+```
+
+Consequences, all encoded in the contract rather than in prose:
+
+- **`_now()` is a documented refusal.** The contract does not pretend to read
+  time, and `get_program` returns `no_clock_on_this_runner: true` so the
+  limitation is stated **in its own data**.
+- **Rule 5 is vacuous, not satisfied** — and is kept anyway. `claim_payout` and
+  `cancel_program` stay clock-free so the separation survives if a clock appears.
+- **The deadline guarantee is unaffected and is the stronger form.**
+  `commit_predates_deadline` compares GitHub's *signed* `committer.date` against
+  the deadline fixed at open. The point-in-time proof never needed a clock, so the
+  headline wedge is intact.
+- **Genuinely lost: arrival-time policy.** A late submission is accepted and the
+  challenge window is recorded but not enforced. Listed as a limitation.
+- The 360/400 reference never read a clock either. **The plan and the reference
+  were wrong the same way, and only the live target caught it.**
+
+### A payable *refusal* strands value too
+
+This is the sharper finding, and it came from running the thing. `open_program`
+finalized, took 1000 GEN, created no programme, and **read as PASS because the
+transaction finalized**.
+
+My brief said "no `raise` in a payable method — a revert strands value." The
+mirror image is equally true: **returning a refusal strands it just as surely once
+the money has arrived.** Both are wrong; only one was in the brief.
+
+Fixed: `open_program` always creates the programme row once value arrives (bad
+terms → `CANCELLED`, pool locked, one `cancel_program` to recover), and the
+reason is stored and readable through a view. **Proved live** — `cancel_program`
+took the balance 1000 → 0 and a repeat cancel moved nothing.
+
+### The rule audit passed wrongly, three times, then was fixed
+
+It reported `methods that raise at all: []` while 11 of 14 could revert, both
+payable ones included. Three bugs: `ast.walk` emitted `payable.write.public`;
+`self._fail` dotted-names never resolved so the call graph stayed empty; and the
+clock/value walk ran forward over callees when the question was which methods
+*reach* the behaviour. Now: 14 methods (13 public + 1 internal callback),
+`reachable_revert_helpers: {}`, `offenders: []`, and `claim_payout` /
+`cancel_program` are the only value-moving methods and the only
+`can_revert: False` ones.
+
+**This is why M4 carries a mutation requirement** — see §5 M4. Stopping at the
+first green result would have certified the gate on an audit that could not fail.
+
+### Gate: three of four verified
+
+| Criterion | Result |
+| --- | --- |
+| Live schema probe, raw JSON-RPC | **14 methods** — floor was 9 |
+| `genvm-lint` lint | ✓ 3 checks, exit 0 |
+| `genvm-lint check` SDK-validation half | **unverified** — hangs >10 min; earlier `Failed to load SDK`. Transport, not the contract: it passed on the M0 stub and M1 spike in the same session |
+| No revert in a payable method | passed, transitively audited |
+| No clock read with a transfer | **vacuous** — no clock exists |
+
+Deployed `0xC96156B72404E50e2bF319934c57c285545588FA`, finalized/accepted, explorer
+200. 11/11 functional smoke checks. Not exercised: `freeze_entry` (the only
+non-deterministic method) and everything downstream of a frozen entry — M6, gated
+on the demo-repo decision.
+
+### `program_id` is a `str`, and the failure is silent
+
+I hit this during review. `get_program(0)` fails
+`gen_call failed (code=-32000)`; `get_program("0")` returns the record. It looks
+like a broken view rather than a type mismatch. **The M5 client must send it as
+a string**, and M4 should include a test that catches the class.
+
+### M3.5 is being skipped
+
+M3 landed cleanly without it, and `run_panel` can only label one criterion and
+never moves money — risk without a rubric point. The `INCONSISTENT` gap M1 left
+open closes deterministically at M6 with a real repo whose declared stack
+contradicts its tree. Recoverable at the end if time allows; the contract already
+has the storage and view surface for it.
+
+### Method count is 14, not 13 — my error, twice
+
+My first correction said 13 (8 writes + **5** views). The table lists **six**:
+`get_program`, `get_entry`, `get_receipt`, `get_accuracy`, `get_receipt_digest`,
+`get_contract_balance`. M3 shipped all 14 and `get_challenge` is correctly absent,
+so the ">14, cut a view before a capability" rule was never triggered.
 
 ---
 
