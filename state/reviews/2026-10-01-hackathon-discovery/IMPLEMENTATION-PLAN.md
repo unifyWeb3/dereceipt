@@ -1107,21 +1107,64 @@ review it against §9 and tell you what to fix before you submit.
 
 ## 12. Open questions for you
 
-Only these three. Nothing else blocks the build, and M0 can start on any of them.
+### Blocking M8 submission — raised 2026-10-02
+
+**The product has no name, no public repository, and no deployment.** The Projects
+track's `required_evidence_url_types` is **exactly one item — a GitHub
+repository**, validated against `^https?://github\.com/[^/]+/[^/]+/?$`. Without
+one the submission form will not accept the entry. This is the single hard
+requirement, and it is unmet.
+
+| # | Missing | Blocks | Owner |
+| --- | --- | --- | --- |
+| 1 | **Product name** | M5 copy, README title, demo script | user |
+| 2 | **Public GitHub repo** | M8 — hard requirement | user |
+| 3 | **Vercel deployment** | M8, and makes criterion 4 checkable | user |
+
+The 360/400 build had all three: `unifyWeb3/milestone-convenant` and
+`milestone-convenant.vercel.app`. A new repo under the same org keeps the track
+record together.
+
+**This is a scoring question, not only a mechanical one.** Two of the five
+criteria are verifiable only from outside: criterion 3 (*"complete source code
+and accurate docs"*) is read from a public repo, and criterion 4 (*"frontend
+genuinely calls the contract"*) is checked by opening a URL and clicking. A
+reviewer cannot check what they cannot reach.
+
+The optional accepted-evidence list also pays for a **GenLayer Studio contract**
+and a **GenLayer Explorer contract** URL — extra points and expedited review —
+and both need a public home to reference.
+
+**Decide the name before M5**, because M5 is where it gets typed into the UI, the
+page title and the README. Renaming afterwards means touching every string.
+
+### Also still open: the M6 demo repo set
+
+M6 step 3 needs a real repo at a pinned SHA, step 4 one whose declared stack
+contradicts its tree, and step 5 one with a post-deadline commit. **Defect 5 from
+M4 made step 5 more load-bearing than planned** — `AFTER_DEADLINE_WORK` evidence
+was canonicalised as a URL and compared for equality against a commit SHA, so the
+one ground a deterministic re-derivation can settle was decorative. That ground
+must now actually resolve on chain.
+
+I will not choose repositories to freeze on a public chain without explicit
+instruction.
+
+### Closed
+
+1. ~~The 400 scale.~~ Still unanswered, and still not blocking. The build does
+   not change either way; it only changes which number the work is optimised
+   against. §1 assumes the Projects top band.
+2. ~~Which weekly slot.~~ Resolved: build against Mon 2026-10-05, which gives two
+   fresh slots. Do not attempt the Sun 2026-10-04 slot.
+
+### Earlier open questions
 
 1. **The 400 scale.** The repo's README says the Builder Program submission was
-   *"not submitted"*, so I cannot confirm from evidence which programme awarded
-   the 360. I have assumed the target is the Projects top band (3,200–4,000) and
-   built §6 to be re-pointable. If 400 *was* a Projects score, say so and I will
-   re-derive the target — the build does not change either way.
-2. **Which weekly slot.** Build against Mon 2026-10-05 (2 slots) as planned, or
-   attempt the Sun 2026-10-04 slot with a compressed M0–M6? I recommend waiting.
-   M0–M3 is ~11 h, so a compressed build is not realistic before Sunday, and a
-   half-build is how a slot gets burned.
-3. **Demo repositories.** Name three real repos at pinned SHAs you are content to
-   have frozen on a public chain: one healthy, one whose declared stack does not
-   match its tree, and one with a post-deadline commit if you have one. M6 needs
-   all three to exercise the real paths. I will not pick these without you.
+   *"not submitted"*, so I cannot confirm which programme awarded the 360. I have
+   assumed the target is the Projects top band (3,200–4,000) and built §6 to be
+   re-pointable. The build does not change either way.
+2. **Demo repositories.** See the blocking section above.
 
 ### Not questions, but standing instructions for the next session
 
