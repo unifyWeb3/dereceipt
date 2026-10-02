@@ -134,10 +134,14 @@ def main() -> int:
         status, body = wait_for_server(url)
         record("preview server responds", status == 200, f"HTTP {status}")
         served = body or ""
+        # The product was renamed to DeReceipt at M5. The app shell check reads
+        # the name from config rather than repeating a literal, so the next
+        # rename is one edit and not a hunt.
+        product = read_product_name()
         record(
             "served page contains the app markup",
-            'id="app"' in served and "Contest Receipt" in served,
-            "app shell present" if "Contest Receipt" in served else "markup missing",
+            'id="app"' in served and product in served,
+            "app shell present" if product in served else f"markup missing (no {product!r})",
         )
         record(
             "served page is the built page, not a dev server",
@@ -146,8 +150,8 @@ def main() -> int:
         )
         record(
             "page title",
-            "<title>Contest Receipt" in served,
-            "title present" if "<title>Contest Receipt" in served else "title missing",
+            f"<title>{product}" in served,
+            "title present" if f"<title>{product}" in served else "title missing",
         )
     finally:
         server.terminate()
@@ -157,6 +161,21 @@ def main() -> int:
             server.kill()
 
     return finish(results)
+
+
+def read_product_name() -> str:
+    """The product name, read from the one place it is defined.
+
+    ``frontend/src/config.js`` is the single source of truth, per M5. Grepping a
+    literal out of a gate script is how a rename half-applies: the gate keeps
+    asserting the old name and fails for a reason that has nothing to do with the
+    app.
+    """
+    config = REPO_ROOT / "frontend" / "src" / "config.js"
+    match = re.search(r'PRODUCT_NAME\s*=\s*"([^"]+)"', config.read_text())
+    if not match:
+        raise RuntimeError(f"PRODUCT_NAME not found in {config}")
+    return match.group(1)
 
 
 def finish(results: list) -> int:

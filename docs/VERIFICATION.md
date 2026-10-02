@@ -1,4 +1,4 @@
-# Verification record — Contest Receipt
+# Verification record — DeReceipt
 
 This file is a **live evidence log**. It must not claim completion before the
 corresponding observation exists. Every row starts `pending`. A row becomes
@@ -23,7 +23,7 @@ Status vocabulary:
 | M3 · the contract | both checks clean, 9+ methods on the live probe, no `raise` in a payable method, no clock read with a transfer | **passed** — the SDK-validation half that was `unverified` at M3 now completes; see the M4 section. One environment finding forced a design change; read it |
 | M3.5 · bounded LLM criterion | optional; the product is complete without it | pending |
 | M4 · direct tests | 45+ tests, pytest line pasted verbatim below | **passed** — 92 tests in twelve groups, 16/16 mutations proved a named test red. Five contract defects found, three of them money-stranding; read them before deploying |
-| M5 · frontend | build succeeds, real lifecycle, business and lifecycle state shown separately | pending |
+| M5 · frontend | build succeeds, real lifecycle, business and lifecycle state shown separately | **passed** — 33/33 gate checks, 27/27 live read checks. `freeze_entry` ran against the real GitHub API for the first time. One M4 claim corrected; read it |
 | M6 · live run and evidence | steps 1–12 present, every tx `Finalized`, balance observed changing | pending |
 | M7 · docs | a stranger can clone, deploy and reproduce without asking | pending |
 | M8 · deploy, demo, submit | every link resolves; **submission is not authorized** | pending |
@@ -167,7 +167,7 @@ Aggregate, computed from those files and nothing else:
 
 **This wrote no product code.** `contracts/m1_panel_spike.py` is a throwaway
 measurement instrument with one method that asks one question, and it is not
-part of Contest Receipt.
+part of DeReceipt.
 
 The criterion: *does the repository's own README, at the pinned commit, describe
 a working product consistent with that commit?* The answer is one of
@@ -236,7 +236,7 @@ cryptically.
 | Built `index.html` references hashed assets | `assets/index-*.js`, `assets/index-*.css`, both present on disk | passed |
 | Built bundle carries the pinned target | chain `61997` and `https://studio-dev.genlayer.com/api` both found in the bundle | passed |
 | No key material in `dist/` | the environment's real key value scanned against every JS asset — clean | passed |
-| The built page actually serves | `vite preview` → HTTP 200, app shell and `<title>Contest Receipt` present, hashed asset referenced, so it is the built page and not the dev server | passed |
+| The built page actually serves | `vite preview` → HTTP 200, app shell and `<title>` naming the product present (the gate reads the name from `frontend/src/config.js`), hashed asset referenced, so it is the built page and not the dev server | passed |
 | Deploy path works end to end | `scripts/deploy_studio_dev.py --contract contracts/m0_stub_probe.py` → deploy `0xd546e880…` → `0xb7ddd73F…`, `finalized`/`accepted`, `MAJORITY_AGREE`, `FINISHED_WITH_RETURN`, explorer HTTP 200, exit 0 | passed |
 | Deploy `--dry-run` works | against the M1 spike, 2 methods derived, no transaction sent | passed |
 | Both secret guards fire | path guard: 16 cases, all correct — `keys/private.key` and `wallet.keystore` refused inside the checkout, `docs/evidence/*.json` and source files allowed. Content guard: the real key refused when written 0x-prefixed, bare, uppercased, or as an env dump; a transaction ID of identical shape allowed | passed |
@@ -469,10 +469,40 @@ Sixteen mutations, sixteen named tests that went red. Reproduce with
    commit, so the one ground a deterministic re-derivation can settle was
    decorative.
 
-Also: `get_entry` raised on an unfrozen entry (confirmed on chain —
-`gen_call failed (code=-32000)`), and `finalize_program` raised on any
-unchallenged entry, which is the common case. Both fixed by reading views through
-a defaulted accessor; write paths still index directly.
+Also: `finalize_program` raised `KeyError` on any unchallenged entry, which is
+the common case, because its bond-return loop indexed `challenge_status` for
+every entry while that key is written only for challenged ones. Fixed by reading
+through a defaulted accessor; write paths still index directly.
+
+### A correction to the above, found at M5
+
+This record originally also claimed that `get_entry` **raised on an unfrozen
+entry, confirmed on chain with `gen_call failed (code=-32000)`**. **That
+confirmation was wrong.** It was not a contract defect; it was the caller.
+
+`genlayer-py` rejects a string in a `uint256` slot, and `entry_index` is a
+`uint256`. The M4 probe called `get_entry("0", "0")` — a string where an integer
+belongs — and read the resulting `code=-32000` as the contract failing. Called
+correctly, `get_entry("0", 0)` returns the record.
+
+Measured at M5 against the same live contract, with both clients:
+
+| call | `genlayer-py` 0.19.0rc2 | `genlayer-js` 2.0.0-rc.1 |
+| --- | --- | --- |
+| `get_entry("0", 0)` | works | works |
+| `get_entry("0", "0")` | **`code=-32000`** | **works — coerces** |
+| `get_program(0)` | refused (a different key) | refused by our own guard |
+
+So the browser is the *lenient* client and the Python one is strict. The
+underlying hardening is still correct — `TreeMap.__getitem__` really does raise
+`KeyError` for an unwritten key, the 92 direct tests still prove it, and the
+`_read` accessor is still the right fix. What was wrong is the claim that it had
+been confirmed on chain. The confirmed-on-chain finding in this milestone is
+`freeze_entry`, which ran against the live GitHub API for the first time.
+
+**The lesson is the project's recurring hazard again:** a check whose failure I
+attributed to the thing under test, without first establishing that the check
+itself was sound.
 
 ### `genvm-lint check`, both halves
 
@@ -496,6 +526,125 @@ Exit 0.
 | any live `freeze_entry` | every GitHub call in the suite is mocked. M6 is the first real one. |
 | a real payout on chain | the inversion in defect 2 was found offline; proving the fix needs M6's finalization plus an observed balance decrease. |
 | the value model itself | `direct_vm.deal`, the payable-call credit and the transfer debit are modelled in `tests/direct/conftest.py`, not by gltest. Conservation tests are only as good as that model. |
+
+## M5 · the real frontend
+
+Named **DeReceipt**. Gate script: `scripts/m5_gate.py`. Interface: `frontend/`,
+vanilla ES modules, no framework, no database, no backend.
+
+### What is deployed, and read by the interface
+
+Deployed with `scripts/deploy_studio_dev.py`, which exits non-zero unless the
+transaction reaches `finalized`:
+
+```
+✓ Lint passed (3 checks)
+✓ Validation passed
+  Contract: ContestReceipt
+  Methods: 14 (6 view, 8 write)
+finalized/accepted · MAJORITY_AGREE · FINISHED_WITH_RETURN
+contract = 0xAFCc7a6fCa2ceb26365708E1456735f087CF8f7D
+votes    = {'AGREE': 3, 'IDLE': 2}
+DEPLOYED and finalized.
+```
+
+`IDLE: 2` is the M1 measurement reproducing itself on a different method.
+
+### `freeze_entry` against real GitHub — first time on chain
+
+The only method that calls the network, and it had never run live. It did, on
+this deployment, in 64 seconds:
+
+```
+submit → frozen
+get_entry    {"status": "STANDING", "committer_date": "2026-06-10T14:46:12Z",
+              "criteria": [{"criterion": "repo_resolves", "verdict": "PASS",
+                            "reason": "repository_resolves"}, …]}
+get_receipt  {"status": "STANDING",
+              "tree_digest": "6e0a4ca9dc91a67a9c1dc0dffda478ac13318fde55a4903306c9c2289e32412b"}
+get_accuracy {"undetermined": 0, "disqualified": 0, "overturn_rate_bps": 0}
+get_receipt_digest  1df5b44339d9a682814bdb9a4170dcc78f4798283f34356306b433641ef53513
+get_contract_balance  1000
+```
+
+So **the Studio-dev validators do have internet access.** M6's live run is
+therefore viable, and defect 5's `AFTER_DEADLINE_WORK` — which needs a real
+post-deadline commit — can be exercised for real.
+
+### Gate: 33/33
+
+```
+33/33 checks passed
+```
+
+| group | checks | what it catches |
+| --- | --- | --- |
+| build | 2 | a broken import shipped; `dist/` absent |
+| serving | 6 | the dev server answered and the built page was never tested |
+| pinned target | 4 | a build pointing at mainnet, or at nothing |
+| identifier guards | 2 | a rename silently dropped the guard keeping `program_id` a string |
+| naming | 2 | a half-finished rename |
+| key material | 6 | a `.env` value in the bundle |
+| UNDETERMINED as a state | 2 | the amber treatment collapsing into the error treatment |
+| state regions | 2 | business state and lifecycle state merged into one summary |
+| motion | 1 | an indefinite animation ignoring `prefers-reduced-motion` |
+| injection | 1 | `innerHTML` parsing chain-supplied strings |
+| live reads | 3 | the page rendering zeroes and looking broken |
+
+### Live read paths: 27/27
+
+`frontend/scripts/verify-reads.mjs`, built to an SSR bundle so it runs the
+*actual shipped modules* — not a copy — against the chain:
+
+```
+27/27 checks passed
+```
+
+All six views read with `program_id` a string and `entry_index` a number. The
+strongest of these reads the types off the deployed contract rather than trusting
+the interface's assumptions:
+
+```
+PASS  deployed schema declares get_program(program_id: string) — declared string
+PASS  deployed schema declares get_entry(program_id: string, entry_index: int) — declared string, int
+PASS  the two payable methods are exactly open_program and challenge — challenge,open_program
+PASS  get_challenge is absent — the receipt IS the challenge log — absent, as designed
+```
+
+### Two SDK clients disagree about identifier types
+
+| call | `genlayer-py` 0.19.0rc2 | `genlayer-js` 2.0.0-rc.1 |
+| --- | --- | --- |
+| `get_entry("0", 0)` | works | works |
+| `get_entry("0", "0")` | **`code=-32000`** | **works — coerces** |
+| `get_program(0)` | refused (a different key) | refused by our own guard |
+
+The browser is the lenient client. `assertEntryIndex` normalises a numeric string
+from a URL before sending, and `assertProgramId` refuses an integer with a
+sentence naming which argument was wrong.
+
+### Key-material scan
+
+Two tiers, because one concatenated scan cannot tell a leaked key from a
+published constant. **Our own chunk: zero** — no 32-byte hex, no `PRIVATE_KEY`,
+no seed phrase. **Vendor chunks:** 13 distinct 32-byte values, every one
+classified by shape rather than enumerated, so the check survives a dependency
+bump:
+
+```
+PASS  every 32-byte hex in vendor chunks is bytecode, a published constant, or a test pattern
+      — 13 found: 6×EVM init code, 3×synthetic repeating pattern, 4×published constant
+PASS  vendor chunks contain nothing from this project
+```
+
+### The M2 gate still passes
+
+The M2 gate read the product name as a literal. It now reads it from
+`frontend/src/config.js`, so the next rename is one edit:
+
+```
+11/11 checks passed
+```
 
 ## Evidence rules
 

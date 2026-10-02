@@ -20,6 +20,12 @@ Not a log; a list of traps.
   downgrading.
 - `genlayer-py` 0.19 removed `TransactionStatus` in favour of
   `TransactionLifecycle`, which is what breaks `gltest`'s import.
+- **The two SDKs disagree on identifier types, measured at M5.** `genlayer-py`
+  rejects a string in a `uint256` slot (`code=-32000`); `genlayer-js` coerces it
+  and succeeds. `program_id` is a `str`, `entry_index` is an `int`, and **only
+  the Python client enforces it**. So a JS-side bug here is silent, and a
+  Python-side bug here looks exactly like a broken contract. This caused a false
+  M4 finding.
 
 ## GenLayer storage
 
@@ -67,6 +73,17 @@ Not a log; a list of traps.
   because "the tests were failing so I changed the code" is exactly the move
   that needs a paper trail. **Do not change contract behaviour to make a test
   pass without writing down why the old behaviour was wrong.**
+
+## Naming
+
+The product is **DeReceipt**. The name is defined once, in
+`frontend/src/config.js`, as `PRODUCT_NAME`. Renaming it is a one-line change
+there plus the README title.
+
+The contract file stays `contracts/contest_receipt.py` and is **not** renamed. A
+file's name is part of the record of what was measured — M0 through M5 all cite
+that exact path, and the deployed contract's identity comes from its content, not
+its filename. Conflating the two would make the evidence trail lie.
 
 ## Do not
 

@@ -1,162 +1,463 @@
 /**
- * Contest Receipt — M2 skeleton.
+ * Boot, hash routing, and the two state regions that persist across every view.
  *
- * This is deliberately NOT the product yet. M2's gate is that the app builds
- * and serves; the real interface lands at M5. What M2 does fix, so that M5 is
- * not the first time these are discovered, is the three pieces every later
- * milestone depends on:
+ * ## Why the regions never merge
  *
- *   1. the pinned chain and explorer, asserted rather than assumed
- *   2. the real GenLayer lifecycle wait, which throws on Undetermined and
- *      Canceled instead of papering over them with a timeout
- *   3. business state and transaction lifecycle state, kept in SEPARATE
- *      regions, because "ACCEPTED is not finality" is a rubric criterion and
- *      it is cheapest to make visible by construction
+ * GenLayer's transaction lifecycle and the contract's business state are
+ * different layers. A transaction can reach `ACCEPTED` — a majority agreed —
+ * while nothing has settled, and only `FINALIZED` moves value. A UI that merges
+ * them comes to imply that acceptance was settlement. So they are two separate
+ * regions, always both present, never combined into one summary.
  *
- * The three findings M1 established that shape M3 and M5 are recorded here as
- * comments rather than as code, because they are constraints on the contract
- * and the writer, not on this file:
+ * ## Routes
  *
- *   - gl.vm.run_nondet, never run_nondet_unsafe. The published docs recommend
- *     run_nondet_unsafe; this runner does not export it, so docs-current code
- *     raises AttributeError at runtime.
- *   - The frontend reads VIEWS, never receipts. record["data"] is a write's
- *     input calldata; the accepted result is base64 in a format the SDK does
- *     not decode. A verdict must be readable from contract state.
- *   - A criterion that ends undetermined means "the jury could not settle
- *     this". It is never a count of validator objections: 1-2 of 5 validators
- *     were idle in every M1 run.
+ *   #/                                    landing
+ *   #/open                                open a programme
+ *   #/program/0                           a programme and its entries
+ *   #/program/0/entry/1                   one receipt, shareable by URL
+ *
+ * Reading needs no wallet. Only a write does.
  */
 
-import { createClient } from "genlayer-js";
-import { studioDevnet } from "genlayer-js/chains";
+import {
+  CHAIN_ID,
+  CHAIN_ID_HEX,
+  CHAIN_NAME,
+  CONTRACT_ADDRESS,
+  PRODUCT_NAME,
+  TAGLINE,
+} from "./config.js";
+import {
+  assertPinnedChain,
+  contractExists,
+  readAccuracy,
+  readBalance,
+  readDigest,
+  readEntry,
+  readProgram,
+  readReceipt,
+  waitForFinalizedLifecycle,
+  writeAndWait,
+} from "./lib/contract.js";
+import { buildRoute, parseRoute } from "./lib/identifiers.js";
+import { assertWalletChain, connectWallet, getProvider, listenForAccountChange, listenForChainChange, readConnectedAccount, shortAccount } from "./lib/wallet.js";
+import { el, errorBlock, replace, stateBlock, badge } from "./lib/dom.js";
+import { gen } from "./lib/format.js";
+import { landingView } from "./views/landing.js";
+import { programmeView } from "./views/programme.js";
+import { receiptView } from "./views/receipt.js";
+import { openProgrammeView } from "./views/openProgramme.js";
 
-/** Studio-dev, chain 61997. Temporary network: contracts here can vanish. */
-export const CHAIN_ID = 61997;
-export const CHAIN_ID_HEX = "0xf22d";
-export const EXPLORER = "https://explorer-studio-dev.genlayer.com";
-export const RPC = "https://studio-dev.genlayer.com/api";
+/** Everything the views read. One object, replaced wholesale on every load. */
+const state = {
+  route: { name: "landing" },
+  connected: null,
+  chainVerified: null,
+  chainError: null,
+  contractLive: false,
+  programme: null,
+  entry: null,
+  receipt: null,
+  accuracy: null,
+  digest: null,
+  balance: null,
+  entries: [],
+  transactions: [],
+  loading: false,
+  loadError: null,
+};
 
-/** Public build variable. The only one. Never a key. */
-export const CONTRACT_ADDRESS =
-  import.meta.env.VITE_CONTRACT_ADDRESS || "";
+/** Transactions this browser sent, with the lifecycle that was observed. */
+const transactionLog = [];
+
+const root = document.querySelector("#app");
+let statusBar = null;
+
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
 
 /**
- * Poll the GenLayer lifecycle until the transaction is final.
+ * Load everything the current route needs.
  *
- * Throws on `Undetermined` and `Canceled` rather than treating them as a slow
- * success. A jury that could not agree is a real outcome that the product
- * exists to record, so it must surface as a state, not be swallowed.
+ * Reads are independent, so they are issued together and a failure in one does
+ * not blank the page. Each failure is recorded against its own field rather than
+ * thrown, because "the accuracy block failed but the receipt loaded" is more
+ * useful to a reader than an empty screen.
  */
-export async function waitForFinalizedLifecycle(client, hash) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const lifecycle = await client.request({
-      method: "gen_getTransactionLifecycle",
-      params: [{ txId: hash }],
-    });
-    const status = lifecycle?.storedStatus;
-    if (status === "Finalized") return lifecycle;
-    if (status === "Undetermined" || status === "Canceled") {
-      throw new Error(`Transaction reached ${status}.`);
+async function load() {
+  state.loading = true;
+  state.loadError = null;
+  render();
+
+  const route = state.route;
+  const settle = async (assign, fn) => {
+    try {
+      assign(await fn());
+    } catch (error) {
+      assign(null);
+      if (!state.loadError) state.loadError = error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+  };
+
+  if (route.name === "landing" || route.name === "programme" || route.name === "receipt") {
+    state.contractLive = await contractExists();
+    await settle((v) => (state.balance = v), readBalance);
   }
-  throw new Error(`Transaction ${hash} did not finalize in time.`);
+
+  if (route.name === "programme" || route.name === "receipt") {
+    await settle((v) => (state.programme = v), () => readProgram(route.programId));
+    await settle((v) => (state.accuracy = v), () => readAccuracy(route.programId));
+    await settle((v) => (state.digest = v), () => readDigest(route.programId));
+    await settle((v) => (state.entries = v), loadEntries(route.programId));
+  }
+
+  if (route.name === "receipt") {
+    await settle((v) => (state.entry = v), () => readEntry(route.programId, route.entryIndex));
+    await settle((v) => (state.receipt = v), () => readReceipt(route.programId, route.entryIndex));
+  }
+
+  state.loading = false;
+  render();
 }
 
-/** Explorer deep link for a transaction ID. */
-export function txLink(hash) {
-  return `${EXPLORER}/tx/${hash}`;
+/** Every entry of a programme, tolerating a reset that outruns the request. */
+async function loadEntries(programId) {
+  const programme = state.programme;
+  const count = Number(programme?.entry_count ?? 0);
+  if (!count) return [];
+  const reads = [];
+  for (let index = 0; index < count; index += 1) {
+    reads.push(readEntry(programId, index));
+  }
+  const settled = await Promise.allSettled(reads);
+  const entries = [];
+  for (const [index, result] of settled.entries()) {
+    if (result.status !== "fulfilled") continue;
+    entries.push({ ...result.value, program_id: programId, index });
+  }
+  return entries;
 }
 
-/** Explorer deep link for a contract address. */
-export function addressLink(address) {
-  return `${EXPLORER}/address/${address}`;
+/** Landing needs the first programme's receipt so the stage has real content. */
+async function loadLandingHero() {
+  if (!state.contractLive) return;
+  try {
+    // Programme ids are strings that increment as "0", "1", … Probing a few is
+    // cheaper than an index view the contract does not expose, and a miss is a
+    // refusal rather than an error.
+    for (const candidate of ["0", "1", "2"]) {
+      const programme = await readProgram(candidate);
+      if (!programme) continue;
+      state.programme = programme;
+      state.accuracy = await readAccuracy(candidate);
+      state.digest = await readDigest(candidate);
+      state.entries = await loadEntries(candidate);
+      if (state.entries.length > 0) {
+        const first = state.entries[0];
+        state.entry = first;
+        state.receipt = await readReceipt(candidate, first.index);
+      }
+      return;
+    }
+  } catch {
+    // A landing page with no hero receipt is a valid state; the stage says so.
+  }
 }
 
-const app = document.querySelector("#app");
-
-app.innerHTML = `
-  <header class="topbar">
-    <div>
-      <p class="eyebrow">GENLAYER BUILDER PROGRAM &middot; STUDIO-DEV PREVIEW</p>
-      <h1>Contest Receipt</h1>
-      <p class="lede">
-        Auditable verdicts for AI-judged hackathons and grant rounds: evidence
-        frozen at submission, every contested criterion kept on the record, and
-        the programme's own overturn rate published.
-      </p>
-    </div>
-    <div class="network-pill"><span class="dot"></span> Studio-dev &middot; chain ${CHAIN_ID}</div>
-  </header>
-
-  <main class="shell">
-    <section class="notice">
-      <strong>Skeleton build.</strong> The interface is wired at M5. This page
-      exists to prove the build and the pinned chain, and it deliberately shows
-      the two state regions the final app will keep separate.
-    </section>
-
-    <div class="columns">
-      <section class="panel">
-        <p class="eyebrow">REGION 1 &middot; BUSINESS STATE</p>
-        <h2>Programme state</h2>
-        <p class="hint">
-          Contract state, read through views. Never decoded from a receipt.
-        </p>
-        <pre id="business">no contract connected</pre>
-      </section>
-
-      <section class="panel">
-        <p class="eyebrow">REGION 2 &middot; TRANSACTION LIFECYCLE</p>
-        <h2>Lifecycle state</h2>
-        <p class="hint">
-          Protocol lifecycle for one transaction. <code>ACCEPTED</code> is not
-          finality; only <code>Finalized</code> is.
-        </p>
-        <pre id="lifecycle">idle</pre>
-      </section>
-    </div>
-
-    <section class="panel">
-      <p class="eyebrow">PINNED TARGET</p>
-      <h2>Environment</h2>
-      <dl class="facts">
-        <dt>Chain id</dt><dd>${CHAIN_ID} (${CHAIN_ID_HEX})</dd>
-        <dt>RPC</dt><dd>${RPC}</dd>
-        <dt>Explorer</dt><dd><a href="${EXPLORER}" target="_blank" rel="noreferrer">${EXPLORER}</a></dd>
-        <dt>Contract address</dt><dd>${CONTRACT_ADDRESS || "not set — VITE_CONTRACT_ADDRESS"}</dd>
-        <dt>SDK</dt><dd>genlayer-js 2.0.0-rc.1</dd>
-      </dl>
-    </section>
-  </main>
-`;
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
 
 /**
- * Prove the pinned chain is the one the SDK is actually pointed at, rather than
- * trusting a constant. A wallet on the wrong chain is the most common way a
- * demo fails silently.
+ * Every write in the app. One helper, so the chain assertion, the lifecycle wait
+ * and the two-not-success states cannot be handled inconsistently.
  */
-export async function assertPinnedChain() {
-  const client = createClient({ chain: studioDevnet, rpcUrl: RPC });
-  const reported = await client.request({ method: "eth_chainId", params: [] });
-  const hex = typeof reported === "string" ? reported : `0x${Number(reported).toString(16)}`;
-  if (Number.parseInt(hex, 16) !== CHAIN_ID) {
-    throw new Error(
-      `RPC reports chain ${hex}, expected ${CHAIN_ID_HEX}. Refusing to pretend.`
+async function send(method, args, { value, label } = {}) {
+  if (!state.connected) {
+    await connect();
+    if (!state.connected) return;
+  }
+  const provider = getProvider();
+  if (provider) {
+    await assertWalletChain(provider, state.connected, { switchChain: true });
+  }
+
+  appendNotice(`Sending ${label || method}…`, "open");
+
+  try {
+    const result = await writeAndWait(method, args, { account: state.connected, value });
+    const record = {
+      method,
+      label: label || method,
+      hash: result.hash,
+      lifecycle: result.lifecycle,
+      at: new Date().toLocaleTimeString("en-GB"),
+    };
+    transactionLog.unshift(record);
+    if (transactionLog.length > 12) transactionLog.pop();
+    replaceNotice(
+      el(
+        "div",
+        { class: "notice notice--ok" },
+        el("strong", {}, `${label || method} finalized. `),
+        el("code", { class: "mono" }, result.hash.slice(0, 18) + "…"),
+      ),
+      "ok",
+    );
+    await load();
+    return result;
+  } catch (error) {
+    // Undetermined and Canceled arrive here as exceptions, by design. They are
+    // outcomes to display, not failures to hide behind a toast.
+    replaceNotice(
+      el(
+        "div",
+        { class: "notice notice--warn" },
+        el("strong", {}, `${label || method} did not settle. `),
+        el("span", {}, error?.message || String(error)),
+      ),
+      "warn",
+    );
+    await load();
+    return null;
+  }
+}
+
+function appendNotice(text, tone) {
+  if (!statusBar) return;
+  replace(statusBar, el("div", { class: `notice notice--${tone}` }, text));
+}
+
+function replaceNotice(node, tone) {
+  if (!statusBar) return;
+  replace(statusBar, el("div", { class: `notice notice--${tone}` }, node));
+}
+
+// ---------------------------------------------------------------------------
+// Wallet
+// ---------------------------------------------------------------------------
+
+async function connect() {
+  try {
+    const provider = getProvider();
+    if (provider) await assertWalletChain(provider, null, { switchChain: true });
+    state.connected = await connectWallet();
+    render();
+  } catch (error) {
+    replaceNotice(
+      el(
+        "div",
+        { class: "notice notice--bad", role: "alert" },
+        el("strong", {}, "Wallet. "),
+        el("span", {}, error?.message || String(error)),
+      ),
+      "bad",
     );
   }
-  return hex;
 }
 
-if (typeof window !== "undefined") {
-  assertPinnedChain()
-    .then((hex) => {
-      document.querySelector("#business").textContent =
-        `chain verified: ${hex}\nno contract deployed yet — the contract is written at M3`;
-    })
-    .catch((error) => {
-      document.querySelector("#business").textContent = `chain check failed: ${error.message}`;
-      document.querySelector("#lifecycle").textContent = "not reached";
-    });
+// ---------------------------------------------------------------------------
+// Routing
+// ---------------------------------------------------------------------------
+
+function go(route) {
+  const hash = buildRoute(route);
+  if (window.location.hash === hash) {
+    state.route = route;
+    load();
+  } else {
+    window.location.hash = hash;
+  }
 }
+
+function onHashChange() {
+  try {
+    state.route = parseRoute(window.location.hash);
+  } catch (error) {
+    // A malformed hash must not blank the app. The identifier assertion throws a
+    // sentence naming which argument was wrong, which is exactly what is needed.
+    state.route = { name: "landing", routeError: error?.message || String(error) };
+  }
+  load();
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+
+function chrome() {
+  const account = state.connected
+    ? el(
+        "button",
+        {
+          class: "pill pill--account",
+          type: "button",
+          onClick: () => {
+            state.connected = null;
+            render();
+          },
+          title: "Disconnect",
+        },
+        shortAccount(state.connected),
+      )
+    : el(
+        "button",
+        { class: "pill pill--connect", type: "button", onClick: connect },
+        "Connect wallet",
+      );
+
+  const chainPill = state.chainVerified
+    ? badge(`${CHAIN_NAME} · chain ${CHAIN_ID}`, "ok", `RPC reports ${state.chainVerified}`)
+    : state.chainError
+      ? badge("wrong chain", "bad", state.chainError)
+      : badge("checking chain…", "open");
+
+  return el(
+    "header",
+    { class: "topbar" },
+    el(
+      "a",
+      { class: "topbar__brand", href: "#/" },
+      el("span", { class: "topbar__name" }, PRODUCT_NAME),
+      el("span", { class: "topbar__tag" }, TAGLINE),
+    ),
+    el("div", { class: "topbar__right" }, chainPill, account),
+  );
+}
+
+function render() {
+  const route = state.route;
+
+  const body = (() => {
+    if (state.chainError) {
+      return errorBlock("This build is pointed at the wrong network", state.chainError);
+    }
+    if (route.routeError) {
+      return errorBlock("That address in the URL is not valid", route.routeError);
+    }
+    switch (route.name) {
+      case "programme":
+        return programmeView({
+          programme: state.programme,
+          entries: state.entries,
+          accuracy: state.accuracy,
+          digestValue: state.digest,
+          transactions: transactionLog,
+          onRoute: go,
+          onWrite: send,
+        });
+      case "receipt":
+        return receiptView({
+          receipt: state.receipt,
+          entry: state.entry,
+          accuracy: state.accuracy,
+          digestValue: state.digest,
+          programme: state.programme,
+          onRoute: go,
+        });
+      case "open":
+        return openProgrammeView({ connected: Boolean(state.connected), onRoute: go, onOpenProgramme: openProgramme });
+      case "landing":
+      default:
+        return landingView({
+          programme:
+            state.programme && state.receipt
+              ? { program: state.programme, receipt: state.receipt, entry: state.entry }
+              : null,
+          contractLive: state.contractLive,
+          onOpen: go,
+          onOpenProgramme: () => go({ name: "open" }),
+        });
+    }
+  })();
+
+  statusBar = el("div", { class: "statusbar" });
+
+  replace(
+    root,
+    chrome(),
+    statusBar,
+    el("main", { class: "shell" }, body),
+    el(
+      "footer",
+      { class: "footbar" },
+      el(
+        "p",
+        {},
+        `${PRODUCT_NAME} · ${CHAIN_NAME} chain ${CHAIN_ID} · contract `,
+        el("code", { class: "mono" }, CONTRACT_ADDRESS.slice(0, 10) + "…" + CONTRACT_ADDRESS.slice(-6)),
+        ` · contract holds ${gen(state.balance)} GEN`,
+      ),
+    ),
+  );
+}
+
+/** Open a programme from the form. One call, then route to what was created. */
+async function openProgramme({ name, criteria, pool, deadline, challengeWindow }) {
+  const result = await send(
+    "open_program",
+    [name, JSON.stringify(criteria), deadline, challengeWindow, "{}"],
+    { value: BigInt(Math.trunc(pool)), label: "open_program" },
+  );
+  if (result) {
+    // The contract returns the new id; route to it so the reader lands on what
+    // they just made rather than back on a landing page that does not mention it.
+    try {
+      const raw = result.transaction?.result ?? result.transaction?.rawReturn;
+      const id = typeof raw === "string" ? raw : null;
+      if (id) go({ name: "programme", programId: id });
+    } catch {
+      go({ name: "programme", programId: "0" });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+async function boot() {
+  onHashChange();
+
+  // The chain assertion runs before anything is sent, so a misconfigured build
+  // fails with a sentence rather than a screen of zeroes.
+  try {
+    state.chainVerified = await assertPinnedChain();
+  } catch (error) {
+    state.chainError = error?.message || String(error);
+  }
+
+  state.connected = await readConnectedAccount();
+
+  window.addEventListener("hashchange", onHashChange);
+  listenForAccountChange(() => {
+    readConnectedAccount().then((account) => {
+      state.connected = account;
+      render();
+    });
+  });
+  listenForChainChange(() => {
+    assertPinnedChain().catch((error) => {
+      state.chainError = error?.message || String(error);
+      render();
+    });
+  });
+
+  if (state.route.name === "landing") await loadLandingHero();
+  await load();
+}
+
+boot().catch((error) => {
+  replace(
+    root,
+    el(
+      "div",
+      { class: "shell" },
+      errorBlock(
+        "Could not start",
+        `${error?.message || String(error)} — expected ${CHAIN_ID_HEX} on ${CHAIN_NAME}.`,
+      ),
+    ),
+  );
+});

@@ -1,4 +1,4 @@
-# Contest Receipt architecture
+# DeReceipt architecture
 
 **Status: M2 skeleton.** The contract does not exist yet — it is written at M3.
 Everything below that describes the contract is the *specification being built

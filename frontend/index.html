@@ -3,11 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Contest Receipt — GenLayer Studio-dev</title>
-    <link rel="stylesheet" href="/src/style.css" />
+    <title>DeReceipt — auditable verdicts for AI-judged programmes</title>
+    <meta
+      name="description"
+      content="DeReceipt freezes the evidence behind an AI-judged verdict, keeps every contested criterion on the record, and publishes the programme's own overturn rate. On GenLayer."
+    />
+    <!--
+      The product name is defined once, in src/config.js, and written into the
+      document title at boot. The literal below is a pre-paint fallback for a
+      reader who has JavaScript disabled or a slow bundle: a tab that says
+      "Loading…" instead of the product's name reads as a broken page.
+    -->
+    <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
+    <div id="app">
+      <noscript>
+        <p style="max-width: 60ch; margin: 12vh auto; font-family: system-ui; color: #e8edf5">
+          DeReceipt reads its state directly from the GenLayer chain, so it needs JavaScript to
+          render. Nothing is held on a server — there is no server. The contract is at
+          <code>0xAFCc7a6fCa2ceb26365708E1456735f087CF8f7D</code> on Studio-dev, chain 61997.
+        </p>
+      </noscript>
+    </div>
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

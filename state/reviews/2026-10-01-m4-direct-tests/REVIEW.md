@@ -34,9 +34,18 @@ what makes the green run meaningful rather than merely reported.
 | 4 | `claim_payout` only accepts closed; `cancel_program` sets `CANCELLED` | A denied challenge's **bond stranded**. |
 | 5 | `AFTER_DEADLINE_WORK` evidence canonicalised as a URL, compared for equality against a 40-hex commit | The one ground a deterministic re-derivation can settle was **decorative**. |
 
-Plus `get_entry` raising on an unfrozen entry (confirmed on chain:
-`gen_call failed, code=-32000`) and `finalize_program` raising on any
-unchallenged entry, which is the common case.
+Plus `finalize_program` raising on any unchallenged entry, which is the common
+case, because its bond-return loop indexed a key only challenged entries write.
+
+> **Corrected at M5.** This review originally also claimed `get_entry` raised on
+> an unfrozen entry, "confirmed on chain: `gen_call failed, code=-32000`". That
+> confirmation was wrong — it was the caller. `genlayer-py` rejects a string in
+> a `uint256` slot, the M4 probe passed `entry_index` as `"0"` instead of `0`, and
+> the resulting `code=-32000` was read as the contract failing. `genlayer-js`
+> coerces the same value and succeeds. The hardening is still correct — the
+> direct suite proves the `KeyError` and all 92 tests still pass — but it was
+> never a *chain* finding. See `docs/VERIFICATION.md`, M4 → "A correction to the
+> above".
 
 **Defect 2 is the one that matters most, and so is why it was invisible.**
 

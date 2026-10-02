@@ -1,200 +1,128 @@
-# Contest Receipt
+# DeReceipt
 
 **Auditable verdicts for AI-judged hackathons and grant rounds.**
 
-Every AI-judged hackathon ends with a score, an announcement, and a runner-up
-who says the panel was rigged. Nobody can check, because the jury's own
-disagreement was thrown away. Contest Receipt keeps it.
+When an AI jury judges a hackathon entry, the losing side has no way to find out
+why. DeReceipt keeps the reasoning, the evidence and the disputes — and publishes
+the programme's own overturn rate.
 
-A builder submits a repository pinned to an immutable commit. The contract
-freezes that evidence and derives a receipt from it. A losing entrant can stake
-a challenge against **one** named criterion, and the second pass re-reads that
-criterion only — the neighbouring criteria stay byte-identical. The programme
-publishes its own overturn rate, derived from storage on read, forever.
+- **Contract:** [`contracts/contest_receipt.py`](contracts/contest_receipt.py) — an
+  [Intelligent Contract](https://docs.genlayer.com) on GenLayer Studio-dev
+- **Interface:** [`frontend/`](frontend/) — vanilla ES modules, no framework, no
+  database, no backend
+- **Architecture and the hard rules:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- **What has actually been observed:** [`docs/VERIFICATION.md`](docs/VERIFICATION.md)
 
-> **Status: under construction.** The repository skeleton, the environment pins
-> and a consensus measurement are done. **The contract is not written yet** — it
-> is M3. `docs/VERIFICATION.md` is the live evidence log and is the authority on
-> what has actually been observed; nothing in this README is a claim that has
-> not been measured. Read that file before trusting anything below.
+---
 
-## What it does
+## The problem
 
-1. **The organiser publishes a programme.** Three to five fixed criteria, an
-   integer weight each, a deadline, and a pool. Criteria are snapshotted onto
-   the programme at that moment. There is no setter, ever.
-2. **A builder submits a repository** at a pinned commit, with a declared stack
-   and a demo URL.
-3. **The contract freezes the evidence** and derives a receipt: the tree digest
-   of the file manifest, and the commit's committer date. The commit SHA is part
-   of every evidence URL, so the read is point-in-time — a README cannot be
-   polished into existence after the deadline, because changing it changes the
-   SHA, which changes the URL.
-4. **A challenge is possible.** A losing entrant stakes a bond against one named
-   criterion and attaches new evidence. The original verdict is never
-   overwritten; the outcome is recorded beside it.
-5. **The programme publishes its own accuracy record**: entries, criteria that
-   ended contested, challenges filed and upheld, and the overturn rate.
+A hackathon judged by a model produces a score and a winner. It does not produce
+anything a loser can check. Three things usually go wrong, and all three are
+worse when nobody can see them:
 
-## Why the receipt is different
+1. **The reasoning is discarded.** A builder is told `6/10` with no indication of
+   which criterion failed or on what evidence.
+2. **An outage is indistinguishable from a verdict.** GitHub rate-limits every
+   validator at once. If "we could not read the repository" is recorded as "the
+   repository does not exist", then the contest's outcome depends on GitHub's
+   availability, and a builder is eliminated for someone else's outage.
+3. **A dispute has nowhere to go.** If you think the jury was wrong, there is no
+   procedure, no record, and no way to show what you would have seen instead.
 
-From 219 published GenLayer projects, five capabilities are empty:
+## What this does instead
 
-| Capability | Competitors |
+- **Evidence is frozen at the moment of judgement.** The commit, the manifest
+  and GitHub's signed `committer.date` are read from the API and committed on
+  chain. Every criterion records the observation that produced it.
+- **Only a 404 is a rejection.** A 403, a 429, a 5xx, an empty body or a
+  non-JSON body is `UNDETERMINED` — recorded, and it does not disqualify anyone.
+  The absence of evidence is not evidence of absence.
+- **There is no model in the decision path.** Every criterion is arithmetic over
+  facts fetched from GitHub, re-derived independently by each validator under
+  the equivalence principle. A fact is a fact; a model has no authority over one.
+- **Disputes are a feature, not an escape hatch.** One challenge per entry,
+  staked with a bond, against one named criterion. The contract re-derives that
+  criterion deterministically on chain. The original verdict is never
+  overwritten — the outcome is recorded *beside* it, which is why the receipt
+  contains the challenge log and there is no separate `get_challenge` view.
+- **The rubric is fixed and snapshotted.** Five criteria, no custom rubric and no
+  subjectivity. The snapshot is fixed when the programme opens, so a builder
+  knows before submitting what is being judged.
+- **The programme publishes its own accuracy.** Entries, unsettled criteria,
+  deterministically disqualified entries, challenges filed and upheld, and the
+  overturn rate — all readable from `get_accuracy`, with the two counters kept
+  separate so an outage cannot inflate a disqualification rate.
+- **The receipt has a digest.** `get_receipt_digest` is a SHA-256 over the
+  programme's whole audit record in canonical JSON with sorted keys. Re-ordering
+  the record cannot change it; changing the record must. An organiser can prove
+  months later that the record they published is the record the chain holds.
+
+## The interface
+
+Four views, hash-routed, no framework:
+
+| route | what it is for |
 | --- | --- |
-| Verdict anchored to a point in time, not judging time | **0 / 219** |
-| Declared claim checked against the actual artifact | **0 / 219** |
-| Publishes an agreement / consensus / overturn statistic | **0 / 219** |
-| Contested criteria kept on the public record | **0 / 219** |
-| Any refund path on cancellation | 0 / 219 |
+| `#/` | the product claim, backed by the live receipt it has actually produced |
+| `#/open` | the organizer path — open a programme, pick the rubric, lock the pool |
+| `#/program/0` | business state, the accuracy block, the digest, the organizer controls |
+| `#/program/0/entry/1` | one receipt, shareable by URL |
 
-The three deterministic checks that carry the wedge are arithmetic over
-authoritative sources, and a model has no authority over any of them:
+Reading needs no wallet. Only a write does, and the app never holds a key.
 
-- **`commit_predates_deadline`** — `committer.date` against the stored deadline.
-  A point-in-time proof the work existed before the rules closed, signed by
-  GitHub and unforgeable after the fact.
-- **`declared_language_present`** — the declared stack checked against the frozen
-  tree. An entrant who declares `typescript` in a repository containing no `.ts`
-  is refuted by the artifact, not by opinion.
-- **`not_duplicate`** — a repeated `tree_digest` across the programme is refused.
+**Two regions are kept visibly separate on every view** — contract business state
+and the GenLayer protocol lifecycle — because they are different layers and
+merging them makes `ACCEPTED` look like settlement. Only `FINALIZED` moves value.
 
-**Only a 404 from a source is a business rejection.** A 403, 429, 5xx, empty
-body or non-JSON is `UNDETERMINED`, never a failure. Validators call
-`api.github.com` unauthenticated from their own machines, so rate limits are
-expected, and a rate limit is never recorded as a builder's fault.
+`UNDETERMINED` has its own styling and is never rendered as an error. A jury that
+could not settle a criterion is the product working.
 
 ## Running it
 
-Requires Python 3.12+ and Node 20+.
-
-```sh
-# Python side
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-
-# Frontend
-cd frontend && npm install && npm run build
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:5173
+npm run build        # -> dist/
 ```
 
-Secrets come from the **process environment only**. `scripts/gl_env.py` refuses
-to load a private key from `.env` and refuses to write credential material
-inside the checkout. `.env.example` holds public configuration only.
+The deployed contract address is a public build variable with a working default:
 
-### Environment verification (M0)
-
-```sh
-set -a; . ./.env; set +a
-.venv/bin/python scripts/m0_env_probe.py
+```bash
+VITE_CONTRACT_ADDRESS=0xYourAddress npm run build
 ```
 
-Probes the contract runner against the live target, deploys a one-method stub,
-and writes `docs/evidence/m0-<date>.json`. Exit code 0 means the gate passed.
+GenLayer Studio-dev **resets periodically**. After a reset the default address
+holds no contract and the interface says so plainly rather than rendering an
+empty dashboard that looks like a product with no data.
 
-### Deploying
+## Verifying it
 
-```sh
-.venv/bin/python scripts/deploy_studio_dev.py --contract contracts/contest_receipt.py
-.venv/bin/python scripts/deploy_studio_dev.py --contract contracts/contest_receipt.py --dry-run
+```bash
+.venv/bin/python scripts/m5_gate.py          # 33 checks, including live reads
+bash run_direct_tests.sh                     # 92 tests, 16 mutation proofs
+.venv/bin/python scripts/m4_mutation_proof.py
+GENVM_VERSION=v0.6.0-rc5 .venv/bin/genvm-lint check contracts/contest_receipt.py
 ```
 
-`--dry-run` lints and probes the schema without sending a transaction. A
-submitted transaction is not a deployment until its lifecycle and execution
-result have been read; the script exits non-zero if the transaction did not
-reach `finalized`.
+`scripts/m5_gate.py` runs the *actual shipped modules* against the live chain via
+an SSR build, so the read paths are exercised as the browser exercises them. See
+[`docs/VERIFICATION.md`](docs/VERIFICATION.md) for what each check observed.
 
-### Measuring the jury (M1)
+## What is deliberately not here
 
-```sh
-.venv/bin/python scripts/m1_consensus_spike.py
-.venv/bin/python scripts/m1_aggregate.py
-```
+- **No database and no backend.** Every read is a contract view. There is
+  nothing to run and nothing to sign up for.
+- **No model in the decision path.** A bounded subjective criterion is a later,
+  optional milestone. The product is complete and defensible without it.
+- **No custom rubric.** Criteria come from a fixed set of five.
+- **No block clock.** This runner exposes none. The deadline is proven by
+  comparing GitHub's signed committer date against an absolute unix second — it
+  proves *when the work existed*, which is the claim being made, and it does not
+  claim when the transaction arrived.
 
-## What is measured so far
+## Licence and attribution
 
-| Milestone | Gate | Status |
-| --- | --- | --- |
-| M0 environment and pins | stub deploys, reaches `Finalized` on chain 61997, `genvm-lint check` clean | **passed** |
-| M1 consensus spike | convergence number, decided comparison mode | **passed** — 6/6, 2-bucket |
-| M2 repo skeleton | `npm run build` succeeds, a stub `index.html` serves | **passed** |
-| M3 the contract | 9+ methods on the live probe, both checks clean | not started |
-| M3.5 optional model criterion | cuttable without breaking anything | not started |
-| M4 direct tests | 45+ tests, pytest line pasted verbatim | not started |
-| M5 frontend | real lifecycle, business and lifecycle state shown separately | not started |
-| M6 live run and evidence | every tx `Finalized`, contract balance observed changing | not started |
-| M7 docs | a stranger can clone and reproduce without asking | not started |
-| M8 deploy, demo, submit | every link resolves | **submission is not authorized** |
-
-Three findings worth knowing before reading the code, each measured rather than
-assumed:
-
-- **The published documentation names a runner hash this network rejects.**
-  `py-genlayer:1jb45aa8ynh…` returns `invalid_contract runner malformed` on
-  Studio-dev. The hash in the contract header is
-  `py-genlayer:5jycge4q8k…`, verified by probing the live node.
-- **The same documentation recommends an API this runner does not export.**
-  It says to use `gl.vm.run_nondet_unsafe`; the std library this runner loads
-  has `run_nondet` and `run_nondet_default` and no `run_nondet_unsafe`.
-- **`genvm-lint` passes code the node rejects.** The AST linter does not resolve
-  names — it passed a contract that failed at load with
-  `NameError: name 'u32' is not defined`. Both checks run, because each catches
-  what the other cannot.
-
-## Honest limits
-
-- **Studio-dev is a temporary network.** Contracts there can vanish without
-  notice. Nothing in this repository treats a Studio-dev address as durable, and
-  the demo is designed to be re-runnable from scratch.
-- **Test GEN has no monetary value.** This is not real-value settlement and does
-  not claim to be.
-- **The `INCONSISTENT` bucket has never been exercised.** All six M1 runs
-  answered `CONSISTENT` on three same-organisation repositories with honest
-  READMEs. The spike shows a 2-bucket comparison does not *spuriously* split on
-  an easy document. It does **not** show that it reliably converges on a refuted
-  claim, which is the case the product cares about. That gap stays open until the
-  live run has a repository whose declared stack contradicts its tree.
-- **A contested criterion is not a count of validator objections.** 1–2 of 5
-  validators were idle in every M1 run, and one run was accepted on
-  `AGREE 3 / DISAGREE 1 / IDLE 1`. "The jury could not settle this" and "N
-  validators objected" are different claims and are never shown as one number.
-- **The browser wallet flow is user-driven.** The desktop browser tool was
-  unavailable during development, so any wallet result must be recorded as
-  `user_reported_manual_browser_plus_independent_explorer_check` — never as an
-  agent-observed one, and never with a simulated provider substituted for a real
-  wallet.
-
-## Repository layout
-
-```text
-contracts/          the Intelligent Contract (M3) and the M0/M1 probes
-frontend/           Vite + vanilla JS + genlayer-js + viem, no framework
-tests/direct/       direct tests, no Docker and no network (M4)
-docs/ARCHITECTURE.md the boundary, the deterministic/model split, the rules
-docs/VERIFICATION.md  the live evidence log; every row starts `pending`
-docs/evidence/      machine-generated observations, read back from the chain
-scripts/            the probes, the deploy path and the gates
-gltest.config.yaml  direct-test configuration, with the deliberate version pins
-```
-
-## Evidence rules
-
-These bind every claim in this repository, and they are the rules the
-previously scoring reference build used:
-
-- A submitted transaction is not a successful deployment until its status and
-  execution result are inspected.
-- An `ACCEPTED` result is not final settlement.
-- A UI badge is not authoritative; the contract state, protocol receipt,
-  explorer and balance are.
-- A verdict must be readable from contract state through a view. It is never
-  decoded out of a consensus receipt.
-- Synthetic fixtures are test evidence only. The public demo must use real
-  public inputs.
-- Any unavailable check stays listed as **unverified** rather than being
-  described as passed.
-- Publish failures. A negative observation with transaction IDs is worth more
-  than a paragraph claiming success.
-
-## License
-
-MIT. See [`LICENSE`](LICENSE).
+Built on [GenLayer](https://genlayer.com). See `docs/ARCHITECTURE.md` for the
+design, including the thirteen hard rules the contract obeys.

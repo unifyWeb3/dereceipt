@@ -12,6 +12,23 @@ export default defineConfig({
     target: "es2020",
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // genlayer-js pulls in viem and a CCIP reader, which together are most
+        // of the bundle and are not needed to render anything. Splitting them
+        // out means the app's own code parses first and the page paints before
+        // the heavy read-only dependencies arrive. No behaviour change, and the
+        // "chunk larger than 500 kB" warning becomes an accurate note about
+        // vendor code instead of about our code.
+        manualChunks: {
+          genlayer: ["genlayer-js", "genlayer-js/chains"],
+          viem: ["viem"],
+        },
+      },
+    },
+    // The largest single chunk is vendor code we do not author, so the limit is
+    // set above it deliberately rather than left to warn on every build.
+    chunkSizeWarningLimit: 900,
   },
   server: {
     port: 5173,
