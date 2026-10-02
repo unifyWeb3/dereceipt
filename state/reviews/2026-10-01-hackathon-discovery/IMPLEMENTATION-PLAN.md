@@ -1042,6 +1042,89 @@ My first correction said 13 (8 writes + **5** views). The table lists **six**:
 `get_contract_balance`. M3 shipped all 14 and `get_challenge` is correctly absent,
 so the ">14, cut a view before a capability" rule was never triggered.
 
+## 10e. M5 results — resolved 2026-10-03
+
+M5 committed `eb39e65`, pushed to `unifyWeb3/dereceipt`. Gate **33/33**.
+Record: `state/reviews/2026-10-03-m5-frontend/REVIEW.md`.
+
+### The product is **DeReceipt**
+
+`PRODUCT_NAME` in `frontend/src/config.js` is the single definition. The gate
+checks both that the bundle uses DeReceipt **and that "Contest Receipt" is gone
+from it**, so a half-finished rename fails rather than shipping.
+
+`contracts/contest_receipt.py` is deliberately **not** renamed: M0-M5 all cite that
+path, six scripts and the whole suite reference it, and a deployed contract's
+identity is its content, not its filename. **One docstring line still says
+"Contest Receipt"** and is deferred to M7, because the deployed source is what a
+reviewer reads first and two product names in one repo reads as two products.
+
+### I was wrong about `program_id`, and the correction mattered
+
+At M3 I warned that M5 "must send `program_id` as a string," and applied that
+warning to **the wrong slot**. Measured on the M5 deployment:
+
+```
+get_program('0')    -> OK
+get_entry('0', 0)   -> OK            <- int is correct
+get_entry('0', '0') -> code=-32000
+```
+
+`get_entry(program_id: string, entry_index: int)` -- `program_id` is the `str`,
+`entry_index` is the `int`. **I conflated them and the error propagated into the
+M4 handoff.** The M5 verifier asserts this from the deployed schema, which is why
+it caught what I missed.
+
+**Fourth instance of the recurring hazard**, and the first in the failure
+direction: a check reported a finding the evidence did not support. The M4 record
+of `get_entry` "raising on chain" was itself wrong -- it was the probe passing
+`"0"` where the contract wanted `0`. Corrected in both places; the hardened
+accessor is still correct behaviour.
+
+### `freeze_entry` reached real GitHub
+
+First time on chain, 64 seconds. Real verdicts, real `committer.date` of
+`2026-06-10T14:46:12Z`, real tree digest. **The Studio-dev validators have
+internet.** This de-risks all of M6: defect 5's `AFTER_DEADLINE_WORK`, which M4
+found decorative, can now be *exercised* rather than asserted.
+
+### The key-material gate, and why the fix matters
+
+The scan failed first on 13 matches, all `keccak256("")` in vendor code.
+**Widening the pattern until it passed would have been the wrong fix.** It now
+classifies by shape -- EVM init code, published constants, synthetic patterns --
+scans our chunk separately, and reads identifier types off the **deployed schema**
+rather than trusting assumptions.
+
+### Craft details worth keeping
+
+Hand-written CSS, 38 KB (13 KB gzipped), no framework. Four individually small
+checks that together are what criterion 4 looks like to a reviewer who opens the
+page: `UNDETERMINED` has its own amber treatment **distinct from `--bad`**;
+business state and lifecycle state are separate elements with `border-left` on
+each, not merely labelled; `prefers-reduced-motion` honoured; **no `innerHTML`
+assignment anywhere in application code**.
+
+**Browser paint is the one unmet gate item**, declared honestly. Build, served
+page, assets, bundle and all six read paths are verified; nothing substitutes for
+a human opening the URL.
+
+### BLOCKING SUBMISSION: the repo is private
+
+Confirmed anonymously -- repo page and `raw.githubusercontent.com` both **404**.
+The Portal validates the URL and accepts it; **a reviewer cannot read it.**
+Criterion 3 is scored by reading the repository.
+
+Two decisions close the program, neither code:
+
+| # | Needed for | Item |
+| --- | --- | --- |
+| 1 | criterion 3 | **make `unifyWeb3/dereceipt` public** |
+| 2 | criterion 4 | **Vercel deploy**, `VITE_CONTRACT_ADDRESS=0xAFCc7a6fCa2ceb26365708E1456735f087CF8f7D` |
+
+`vercel.json` is already correct. The default address in `config.js` is the M5
+deployment, balance 1000, independently read.
+
 ---
 
 ## 11. Handoff — instructions for the implementing session
@@ -1117,9 +1200,9 @@ requirement, and it is unmet.
 
 | # | Missing | Blocks | Owner |
 | --- | --- | --- | --- |
-| 1 | **Product name** | M5 copy, README title, demo script | user |
-| 2 | **Public GitHub repo** | M8 — hard requirement | user |
-| 3 | **Vercel deployment** | M8, and makes criterion 4 checkable | user |
+| 1 | ~~Product name~~ | **resolved 2026-10-03: DeReceipt** | — |
+| 2 | **Public GitHub repo** — exists as `unifyWeb3/dereceipt` but is **PRIVATE** | M8 — hard requirement | **user** |
+| 3 | **Vercel deployment** | M8, and makes criterion 4 checkable | **user** |
 
 The 360/400 build had all three: `unifyWeb3/milestone-convenant` and
 `milestone-convenant.vercel.app`. A new repo under the same org keeps the track
