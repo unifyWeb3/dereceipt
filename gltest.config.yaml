@@ -1,48 +1,48 @@
 # gltest configuration
 #
-# Direct-test configuration. The tests themselves are written at M4; this file
-# exists at M2 so the contract and the test harness are pinned before the code
-# that uses them is written, rather than after.
+# Rewritten at M4 against the schema gltest 0.29.2 actually accepts. The M2
+# version used keys (`genvm_version`, `contract_runner`, `contract`, `tests`,
+# `exclude`) that this gltest rejects outright:
 #
-# Two version pins in here are deliberate and copied from the 360/400 reference
-# build, which is the build this project is modelled on. Neither is a typo:
+#   ERROR: Invalid configuration keys. Valid keys are:
+#   ['networks', 'paths', 'environment']
 #
-#   genvm_version  The contract header targets the older v0.3 SDK layout that
-#                  the live Studio-dev target actually runs (measured: GenVM
-#                  v0.3.0-rc7). The reference build therefore ran its direct
-#                  tests against a *newer* GenVM, v0.6.0-rc5. The mismatch is
-#                  intentional and is what the reference submission did.
-#                  When a direct test disagrees with the live target, believe
-#                  the live target.
-#   contract_runner The runner the contract header pins. This must equal
-#                  py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
-#                  and nothing else. The hash named in the published
-#                  documentation is rejected by this target; M0 measured that.
+# and then, for the second attempt:
 #
-# Docker is unavailable in this environment, so direct tests must not require
-# it. `genlayer-test` normally wants a localnet for some flows; anything that
-# needs one is out of scope for the direct suite and must say so in
-# docs/VERIFICATION.md rather than being skipped silently.
+#   ERROR: environment must be a string
+#
+# `environment` is a path to an env *file*, not a mapping, so the GenVM pin is
+# not put here. It is exported in the test command instead, which is where the
+# runner actually reads it. The pins the M2 version carried are all preserved —
+# two as documentation, one as an actual shell export.
+#
+# Direct tests need no network, no localnet and no Docker: `gltest.direct` runs a
+# contract in pure Python behind a WASI mock. So this file configures the
+# *local* (in-process) runner only and names no network at all. That is
+# deliberate — naming a network here would invite an integration test that
+# cannot run in this environment.
 
-genvm_version: v0.6.0-rc5
+paths:
+  contracts: contracts
+  artifacts: artifacts
 
-contract_runner: py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
-
-# The contract under test. Written at M3.
-contract: contracts/contest_receipt.py
-
-# Direct tests exercise the contract without a network: no localnet, no
-# faucet, no Docker. Anything needing a network belongs to the live run at M6.
-tests:
-  paths:
-    - tests/direct
-  # No localnet is started for the direct suite.
-  localnet: false
-  docker: false
-
-# The suite runs against the deterministic core only. The optional bounded
-# model criterion (M3.5) is excluded here deliberately: direct tests must stay
-# reproducible and free of any network or provider dependency.
-exclude:
-  - "*_panel.py"
-  - "*_nondet_llm.py"
+# GENVM_VERSION is exported by the test command, not set here:
+#
+#   GENVM_VERSION=v0.6.0-rc5 .venv/bin/python -m pytest tests/direct -q
+#
+# Why that value, which looks like a mistake and is not: the contract header
+# targets the older v0.3 SDK layout that the live Studio-dev target actually
+# runs (measured: GenVM v0.3.0-rc7), while direct tests run against v0.6.0-rc5.
+# The mismatch is intentional and is what the 360/400 reference submission did.
+#
+# THE RULE: when a direct test disagrees with the live target, the live target is
+# right.
+#
+# The runner the contract header pins, repeated as documentation because this
+# file does not control it — the header at contracts/contest_receipt.py line 1
+# does:
+#
+#   py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng
+#
+# No network, no localnet, no faucet, no Docker. Anything needing one is an
+# integration test and belongs to the live run at M6, not to tests/direct.

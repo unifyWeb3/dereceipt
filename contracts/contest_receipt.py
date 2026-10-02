@@ -320,6 +320,29 @@ class ContestReceipt(gl.contract.Contract):
     def _ck(self, program_id: str, index: int, slug: str) -> str:
         return f"{program_id}:{index}:{slug}"
 
+    def _read(self, tree, key: str, default):
+        """Read a storage key, falling back to ``default`` when it is unwritten.
+
+        ``TreeMap.__getitem__`` **raises ``KeyError``** for a key that was never
+        written — measured on the live target and again in the direct suite, not
+        assumed. That makes a view unsafe for any state it did not itself create:
+        before M4, ``get_entry`` on an entry that had been submitted but not yet
+        frozen read ``criterion_verdict[ckey]`` for each criterion, raised
+        ``KeyError``, and the view failed. Confirmed on chain: ``submit_entry``
+        finalized, then ``get_entry("0","0")`` returned
+        ``gen_call failed (code=-32000)``.
+
+        A view is a reader. It must be safe to call in every state the contract
+        can reach, including the ones where a field legitimately has no value yet,
+        and it must report that absence rather than fail. Write methods still use
+        direct indexing, so a genuine write-before-read bug in this contract would
+        still surface as a ``KeyError`` rather than being silently defaulted.
+        """
+        try:
+            return tree[key]
+        except KeyError:
+            return default
+
     def _fail(self, message: str) -> None:
         """Revert.
 
@@ -336,12 +359,12 @@ class ContestReceipt(gl.contract.Contract):
         return {"ok": False, "error": message, "state_changed": False}
 
     def _require_program(self, program_id: str) -> None:
-        if program_id not in self.program_owner:
+        if not self._read(self.program_owner, program_id, None):
             self._fail("unknown programme")
 
     def _require_entry(self, program_id: str, index: int) -> None:
         self._require_program(program_id)
-        if index < 0 or index >= int(self.program_entry_count[program_id]):
+        if index < 0 or index >= int(self._read(self.program_entry_count, program_id, 0)):
             self._fail("unknown entry")
 
     def _now(self) -> int:
@@ -486,10 +509,12 @@ class ContestReceipt(gl.contract.Contract):
         return _canonical_json(normalized), len(normalized)
 
     def _criterion_slugs(self, program_id: str) -> list:
-        return [item["key"] for item in _json_list_or_empty(self.program_criteria[program_id])]
+        snapshot = self._read(self.program_criteria, program_id, "[]")
+        return [item["key"] for item in _json_list_or_empty(snapshot)]
 
     def _criterion_weight(self, program_id: str, key: str) -> int:
-        for item in _json_list_or_empty(self.program_criteria[program_id]):
+        snapshot = self._read(self.program_criteria, program_id, "[]")
+        for item in _json_list_or_empty(snapshot):
             if item.get("key") == key:
                 return int(item.get("weight", 0))
         return 0
@@ -544,7 +569,7 @@ class ContestReceipt(gl.contract.Contract):
                 else:
                     payload = _json_object_or_empty(_body_of(response))
                     commit_block = payload.get("commit") if isinstance(payload.get("commit"), dict) else {}
-                    committer = commit_block.get("committer") if isinstance(committer_block.get("committer"), dict) else {}
+                    committer = commit_block.get("committer") if isinstance(commit_block.get("committer"), dict) else {}
                     committer_date = str(committer.get("date", ""))
                     if "commit_predates_deadline" in keys:
                         observed = _parse_iso8601(committer_date)
@@ -609,6 +634,32 @@ class ContestReceipt(gl.contract.Contract):
                         name.rsplit("/", 1)[-1] == REQUIRED_FILE for name in blobs
                     )
                     paths = normalized
+
+                    if not blobs:
+                        # A 200 whose body carries no tree at all is a payload we
+                        # cannot read, not a repository with no files. Reporting
+                        # "readme absent" here would disqualify an entrant because
+                        # an edge proxy returned something unexpected — the same
+                        # inversion as the empty-manifest case in ``freeze_entry``.
+                        # A real repository always has at least one blob, so this
+                        # costs no genuine detection.
+                        for key in (
+                            "required_files_present",
+                            "declared_language_present",
+                            "not_duplicate",
+                        ):
+                            if key in keys:
+                                verdicts[key] = CRITERION_UNDETERMINED
+                                notes[key] = "manifest_unreadable"
+                        return {
+                            "verdicts": verdicts,
+                            "notes": notes,
+                            "tree_digest": "",
+                            "committer_date": committer_date,
+                            "file_count": 0,
+                            "readme_present": False,
+                            "paths": [],
+                        }
 
                     if "required_files_present" in keys:
                         if readme_present:
@@ -808,9 +859,9 @@ class ContestReceipt(gl.contract.Contract):
         ``UNDETERMINED`` on a rate limit; separating the two means a throttled
         freeze is retried for free instead of stranding anything the entrant paid.
         """
-        if program_id not in self.program_owner:
+        if not self._read(self.program_owner, program_id, None):
             return self._refuse("unknown programme")
-        if self.program_status[program_id] != PROGRAM_OPEN:
+        if self._read(self.program_status, program_id, "") != PROGRAM_OPEN:
             return self._refuse("programme is not open")
         if not _is_bounded_text(claims_json.strip(), MAX_CLAIMS_LENGTH):
             return self._refuse("claims is out of range")
@@ -828,7 +879,7 @@ class ContestReceipt(gl.contract.Contract):
         except gl.vm.UserError as error:
             return self._refuse(str(getattr(error, "message", error))[:200])
 
-        index = int(self.program_entry_count[program_id])
+        index = int(self._read(self.program_entry_count, program_id, 0))
         if index >= 64:
             return self._refuse("a programme accepts at most 64 entries")
         self.program_entry_count[program_id] = gl.u32(index + 1)
@@ -877,16 +928,16 @@ class ContestReceipt(gl.contract.Contract):
         ``FROZEN``-pending and can be re-run.
         """
         self._require_entry(program_id, entry_index)
-        status = self.entry_status[self._ek(program_id, entry_index)]
+        status = self._read(self.entry_status, self._ek(program_id, entry_index), "")
         if status not in (ENTRY_SUBMITTED, ENTRY_FROZEN, ENTRY_UNDER_REVIEW):
             self._fail("entry is not awaiting a freeze")
 
-        if self.program_status[program_id] != PROGRAM_OPEN:
+        if self._read(self.program_status, program_id, "") != PROGRAM_OPEN:
             self._fail("programme is not open")
 
+        key = self._ek(program_id, entry_index)
         self.entry_status[key] = ENTRY_UNDER_REVIEW
 
-        key = self._ek(program_id, entry_index)
         repo = self.entry_repo[key]
         commit = self.entry_commit[key]
         stack = self.entry_stack[key]
@@ -906,24 +957,36 @@ class ContestReceipt(gl.contract.Contract):
 
         # `declared_language_present` needs the entrant's declared stack, which is
         # deterministic arithmetic over the frozen manifest — no model involved.
+        #
+        # But only when there *is* a manifest. If the leader returned no paths
+        # because GitHub was unavailable, the deterministic arithmetic below would
+        # happily report FAIL: no `.py` file is found among zero paths. That turns
+        # an outage into a disqualification — the exact inversion this contract
+        # exists to prevent, and it was reachable because this post-processing ran
+        # unconditionally over the leader's verdicts. The leader's UNDETERMINED is
+        # kept when there is nothing to compute from.
         if "declared_language_present" in keys:
             paths = result.get("paths") or []
-            declared = [token for token in stack.split(",") if token]
-            matched = None
-            for language in declared:
-                extensions = LANGUAGE_EXTENSIONS.get(language)
-                if not extensions:
-                    matched = None
-                    break
-                if any(name.lower().endswith(extensions) for name in paths):
-                    matched = language
-                    break
-            if matched is not None:
-                verdicts["declared_language_present"] = CRITERION_PASS
-                notes["declared_language_present"] = f"declared_{matched}_present"
+            if not paths:
+                verdicts["declared_language_present"] = CRITERION_UNDETERMINED
+                notes["declared_language_present"] = "requires_stack"
             else:
-                verdicts["declared_language_present"] = CRITERION_FAIL
-                notes["declared_language_present"] = "declared_language_absent_from_frozen_tree"
+                declared = [token for token in stack.split(",") if token]
+                matched = None
+                for language in declared:
+                    extensions = LANGUAGE_EXTENSIONS.get(language)
+                    if not extensions:
+                        matched = None
+                        break
+                    if any(name.lower().endswith(extensions) for name in paths):
+                        matched = language
+                        break
+                if matched is not None:
+                    verdicts["declared_language_present"] = CRITERION_PASS
+                    notes["declared_language_present"] = f"declared_{matched}_present"
+                else:
+                    verdicts["declared_language_present"] = CRITERION_FAIL
+                    notes["declared_language_present"] = "declared_language_absent_from_frozen_tree"
 
         # `not_duplicate` compares against the programme's stored digest set.
         if "not_duplicate" in keys:
@@ -1033,16 +1096,18 @@ class ContestReceipt(gl.contract.Contract):
     def _do_challenge(
         self, program_id: str, entry_index: int, ground: str, evidence_url: str
     ) -> dict:
-        if program_id not in self.program_owner:
+        if not self._read(self.program_owner, program_id, None):
             return self._refuse("unknown programme")
-        if entry_index < 0 or entry_index >= int(self.program_entry_count[program_id]):
+        if entry_index < 0 or entry_index >= int(
+            self._read(self.program_entry_count, program_id, 0)
+        ):
             return self._refuse("unknown entry")
         key = self._ek(program_id, entry_index)
-        if self.entry_status[key] != ENTRY_STANDING:
+        if self._read(self.entry_status, key, "") != ENTRY_STANDING:
             return self._refuse("only a standing entry can be challenged")
-        if int(self.entry_challenge_count[key]) >= 1:
+        if int(self._read(self.entry_challenge_count, key, 0)) >= 1:
             return self._refuse("this entry has already been challenged once")
-        if self.program_status[program_id] != PROGRAM_OPEN:
+        if self._read(self.program_status, program_id, "") != PROGRAM_OPEN:
             return self._refuse("programme is not open")
 
         # No clock read: this runner has none. The challenge window is recorded on
@@ -1120,15 +1185,15 @@ class ContestReceipt(gl.contract.Contract):
         method does that.
         """
         self._require_program(program_id)
-        status = self.program_status[program_id]
+        status = self._read(self.program_status, program_id, "")
         if status == PROGRAM_CLOSED or status == PROGRAM_CLOSED_NO_WINNER:
             self._fail("programme is already closed")
         if status != PROGRAM_OPEN:
             self._fail("programme cannot be finalized in this state")
-        if self.program_owner[program_id] != gl.message.sender_address:
+        if self._read(self.program_owner, program_id, None) != gl.message.sender_address:
             self._fail("only the programme owner may finalize")
 
-        entry_count = int(self.program_entry_count[program_id])
+        entry_count = int(self._read(self.program_entry_count, program_id, 0))
         standing = []
         for index in range(entry_count):
             key = self._ek(program_id, index)
@@ -1249,11 +1314,20 @@ class ContestReceipt(gl.contract.Contract):
         # against the entry it was filed against.
         for index in range(entry_count):
             key = self._ek(program_id, index)
-            if self.challenge_status[key] != CHALLENGE_DENIED:
+            # Guarded read, not a plain index: this loop walks *every* entry, but
+            # `challenge_status` is only written for the one entry per challenger
+            # that was actually challenged. A plain read raises `KeyError` for
+            # every unchallenged entry, so `finalize_program` — the method the
+            # whole product exists to reach — could never run on a programme with
+            # no challenge at all. Found by the direct suite's full-flow probe.
+            if self._read(self.challenge_status, key, "") != CHALLENGE_DENIED:
                 continue
-            amount = bond_returns.get(self.challenge_filer[key].as_hex, 0)
+            filer = self._read(self.challenge_filer, key, gl.Address.ZERO)
+            amount = bond_returns.get(filer.as_hex, 0)
             if amount:
-                self.entry_payout[key] = gl.u256(int(self.entry_payout[key]) + amount)
+                self.entry_payout[key] = gl.u256(
+                    int(self._read(self.entry_payout, key, 0)) + amount
+                )
 
         self.program_status[program_id] = PROGRAM_CLOSED
         return {
@@ -1284,8 +1358,16 @@ class ContestReceipt(gl.contract.Contract):
             # so there is nothing to overturn.
             return False
         if criterion == "commit_predates_deadline":
-            # The only new fact a challenger can add is a different commit.
-            challenger_commit = evidence.strip()
+            # The only new fact a challenger can add is a different commit. The
+            # evidence field is canonicalised as an https URL, so the commit is
+            # not the whole string: it is the first 40-hex token in it. Comparing
+            # the whole string against the stored SHA meant this ground could never
+            # be upheld — a valid URL never equals a 40-character hex digest — so
+            # the dispute mechanism was decorative for the one ground that a
+            # deterministic re-derivation can actually settle. Found by the M4
+            # direct suite; see
+            # state/reviews/2026-10-01-m4-direct-tests/REVIEW.md.
+            challenger_commit = _commit_in_evidence(evidence)
             return bool(challenger_commit) and challenger_commit != self.entry_commit[key]
         if criterion == "not_duplicate":
             return False
@@ -1311,28 +1393,47 @@ class ContestReceipt(gl.contract.Contract):
         marks state; this method moves value. That separation is the fix, and it
         is why this method has no timestamp call anywhere in it.
         """
-        if program_id not in self.program_owner:
+        if not self._read(self.program_owner, program_id, None):
             return self._refuse("unknown programme")
-        if entry_index < 0 or entry_index >= int(self.program_entry_count[program_id]):
+        if entry_index < 0 or entry_index >= int(
+            self._read(self.program_entry_count, program_id, 0)
+        ):
             return self._refuse("unknown entry")
-        status = self.program_status[program_id]
+        status = self._read(self.program_status, program_id, "")
         if status not in (PROGRAM_CLOSED, PROGRAM_CLOSED_NO_WINNER):
             return self._refuse("programme is not closed")
 
         key = self._ek(program_id, entry_index)
-        entry_status = self.entry_status[key]
+        entry_status = self._read(self.entry_status, key, "")
         if entry_status == ENTRY_PAID:
             return self._refuse("entry has already been paid")
-        if entry_status == ENTRY_PAYOUT_READY and self.entry_payout_status[key] != PAYOUT_PENDING_FINALITY:
+        # Claimable once finalization has been *observed*, not while it is still
+        # pending. `_on_entry_finalized` is the method that records finality (and
+        # is the clock-reading half of rule 5's separation); this method is the
+        # value-moving half. A claim that ran before finality was observed would
+        # make that split meaningless.
+        #
+        # This guard previously demanded `PAYOUT_PENDING_FINALITY` — the exact
+        # inverse. Since the callback's only effect is to move an entry *off*
+        # PENDING_FINALITY and onto PAYOUT_READY, the two conditions could never
+        # both hold: once finality was observed the claim was refused, and while
+        # it was unobserved... nothing. The payout path was therefore dead on the
+        # chain, with the pool stranded and `cancel_program` refusing a CLOSED
+        # programme. Found by the M4 direct suite, and hidden until then because
+        # `EmitInternalMessage` was silently undispatched by the harness, so the
+        # callback never ran and the inversion was unobservable. See
+        # tests/direct/conftest.py::_install_internal_messages.
+        payout_status = self._read(self.entry_payout_status, key, "")
+        if entry_status == ENTRY_PAYOUT_READY and payout_status != PAYOUT_READY:
             return self._refuse("entry is not awaiting a payout")
         if entry_status == ENTRY_DISQUALIFIED:
             # A denied challenge's bond is returned to its filer here. The entry
             # itself gets nothing; the bond is what settles.
-            if self.challenge_status[key] == CHALLENGE_DENIED:
+            if self._read(self.challenge_status, key, "") == CHALLENGE_DENIED:
                 return self._pay_bond_return(program_id, entry_index)
             return self._refuse("a disqualified entry has no payout")
 
-        amount = int(self.entry_payout[key])
+        amount = int(self._read(self.entry_payout, key, 0))
         if amount <= 0:
             return self._refuse("entry has no payout to claim")
 
@@ -1364,7 +1465,7 @@ class ContestReceipt(gl.contract.Contract):
 
     def _pay_bond_return(self, program_id: str, entry_index: int) -> dict:
         key = self._ek(program_id, entry_index)
-        amount = int(self.challenge_bond[key])
+        amount = int(self._read(self.challenge_bond, key, 0))
         if amount <= 0:
             return self._refuse("no bond to return")
         self.challenge_bond[key] = gl.u256(0)
@@ -1399,12 +1500,12 @@ class ContestReceipt(gl.contract.Contract):
         transferring twice, because the status check runs before any emission
         and the balance is zeroed first.
         """
-        if program_id not in self.program_owner:
+        if not self._read(self.program_owner, program_id, None):
             return self._refuse("unknown programme")
-        if self.program_owner[program_id] != gl.message.sender_address:
+        if self._read(self.program_owner, program_id, None) != gl.message.sender_address:
             return self._refuse("only the programme owner may cancel")
-        status = self.program_status[program_id]
-        refund = int(self.program_locked[program_id])
+        status = self._read(self.program_status, program_id, "")
+        refund = int(self._read(self.program_locked, program_id, 0))
 
         if status == PROGRAM_CANCELLED and refund <= 0:
             # Idempotent: a second call reports the same thing rather than
@@ -1444,11 +1545,36 @@ class ContestReceipt(gl.contract.Contract):
         recipient = _NativeRecipient(self.program_owner[program_id])
         recipient.emit_transfer(value=gl.u256(refund))
 
+        # Outstanding denied-challenge bonds are swept here too.
+        #
+        # A bond is returned by `claim_payout`, which only accepts a CLOSED or
+        # CLOSED_NO_WINNER programme. Cancelling sets the status to CANCELLED, so a
+        # programme cancelled with a denied bond outstanding left that bond
+        # permanently unreturnable: the pool came back to the owner and the
+        # challenger's GEN stayed in the contract with no path out of it. Since
+        # this method already moves value, sweeping the bonds here keeps one rule
+        # true — *everything the contract holds goes back through a method that
+        # moves value* — instead of leaving a second recovery path half-open.
+        bonds_returned = 0
+        for index in range(int(self._read(self.program_entry_count, program_id, 0))):
+            key = self._ek(program_id, index)
+            if self._read(self.challenge_status, key, "") != CHALLENGE_DENIED:
+                continue
+            bond = int(self._read(self.challenge_bond, key, 0))
+            if bond <= 0:
+                continue
+            self.challenge_bond[key] = gl.u256(0)
+            bonds_returned += bond
+            _NativeRecipient(self._read(self.challenge_filer, key, gl.Address.ZERO)).emit_transfer(
+                value=gl.u256(bond)
+            )
+
         return {
             "ok": True,
             "program_id": program_id,
             "status": PROGRAM_CANCELLED,
             "refund": refund,
+            "bonds_returned": bonds_returned,
             "recipient": self.program_owner[program_id].as_hex,
             "transfer_status": PAYOUT_TRANSFER_EMITTED,
             "note": (
@@ -1474,9 +1600,9 @@ class ContestReceipt(gl.contract.Contract):
             self._fail("finalization callback is internal only")
         self._require_entry(program_id, entry_index)
         key = self._ek(program_id, entry_index)
-        if self.entry_status[key] != ENTRY_PAYOUT_READY:
+        if self._read(self.entry_status, key, "") != ENTRY_PAYOUT_READY:
             return
-        if self.entry_payout_status[key] != PAYOUT_PENDING_FINALITY:
+        if self._read(self.entry_payout_status, key, "") != PAYOUT_PENDING_FINALITY:
             return
         self.entry_payout_status[key] = PAYOUT_READY
         self.entry_finalized_at[key] = self._no_clock()
@@ -1490,18 +1616,20 @@ class ContestReceipt(gl.contract.Contract):
         self._require_program(program_id)
         return {
             "id": program_id,
-            "owner": self.program_owner[program_id].as_hex,
-            "name": self.program_name[program_id],
-            "status": self.program_status[program_id],
+            "owner": self._read(self.program_owner, program_id, gl.Address.ZERO).as_hex,
+            "name": self._read(self.program_name, program_id, ""),
+            "status": self._read(self.program_status, program_id, PROGRAM_OPEN),
             "criteria": _json_list_or_empty(self.program_criteria[program_id]),
             "criterion_count": int(self.program_criterion_count[program_id]),
-            "deadline": int(self.program_deadline[program_id]),
-            "challenge_window": int(self.program_challenge_window[program_id]),
-            "flags": self.program_flags[program_id],
-            "pool": int(self.program_pool[program_id]),
-            "locked": int(self.program_locked[program_id]),
-            "entry_count": int(self.program_entry_count[program_id]),
-            "open_error": self.program_error[program_id],
+            "deadline": int(self._read(self.program_deadline, program_id, 0)),
+            "challenge_window": int(
+                self._read(self.program_challenge_window, program_id, 0)
+            ),
+            "flags": self._read(self.program_flags, program_id, ""),
+            "pool": int(self._read(self.program_pool, program_id, 0)),
+            "locked": int(self._read(self.program_locked, program_id, 0)),
+            "entry_count": int(self._read(self.program_entry_count, program_id, 0)),
+            "open_error": self._read(self.program_error, program_id, ""),
             "no_clock_on_this_runner": True,
             "note": (
                 "Business state only. GenLayer protocol lifecycle is a separate "
@@ -1519,12 +1647,16 @@ class ContestReceipt(gl.contract.Contract):
         verdicts = []
         for slug in self._criterion_slugs(program_id):
             ckey = self._ck(program_id, entry_index, slug)
+            # An entry that has not been frozen has no criterion verdict yet. That
+            # is a real state, not an error, and it reads as NOT_JUDGED rather
+            # than failing the read.
+            stored = self._read(self.criterion_verdict, ckey, "")
             verdicts.append(
                 {
                     "criterion": slug,
                     "weight": self._criterion_weight(program_id, slug),
-                    "verdict": self.criterion_verdict[ckey],
-                    "reason": self.criterion_reason[ckey],
+                    "verdict": stored if stored else "NOT_JUDGED",
+                    "reason": self._read(self.criterion_reason, ckey, "not_evaluated_yet"),
                 }
             )
         return {
@@ -1536,16 +1668,16 @@ class ContestReceipt(gl.contract.Contract):
             "declared_stack": self.entry_stack[key],
             "claims": _json_list_or_empty(self.entry_claims[key]),
             "status": self.entry_status[key],
-            "tree_digest": self.entry_tree_digest[key],
-            "committer_date": self.entry_committer_date[key],
-            "file_count": int(self.entry_file_count[key]),
-            "manifest_summary": self.entry_manifest_summary[key],
-            "manifest_paths_omitted": int(self.entry_manifest_omitted[key]),
-            "readme_present": self.entry_readme_present[key],
-            "disqualify_reason": self.entry_disqualify_reason[key],
-            "payout": int(self.entry_payout[key]),
-            "payout_status": self.entry_payout_status[key],
-            "challenge_count": int(self.entry_challenge_count[key]),
+            "tree_digest": self._read(self.entry_tree_digest, key, ""),
+            "committer_date": self._read(self.entry_committer_date, key, ""),
+            "file_count": int(self._read(self.entry_file_count, key, 0)),
+            "manifest_summary": self._read(self.entry_manifest_summary, key, ""),
+            "manifest_paths_omitted": int(self._read(self.entry_manifest_omitted, key, 0)),
+            "readme_present": self._read(self.entry_readme_present, key, "unknown"),
+            "disqualify_reason": self._read(self.entry_disqualify_reason, key, ""),
+            "payout": int(self._read(self.entry_payout, key, 0)),
+            "payout_status": self._read(self.entry_payout_status, key, PAYOUT_NOT_SCHEDULED),
+            "challenge_count": int(self._read(self.entry_challenge_count, key, 0)),
             "criteria": verdicts,
         }
 
@@ -1561,20 +1693,26 @@ class ContestReceipt(gl.contract.Contract):
         self._require_entry(program_id, entry_index)
         key = self._ek(program_id, entry_index)
         challenges = []
-        if int(self.entry_challenge_count[key]) >= 1:
+        if int(self._read(self.entry_challenge_count, key, 0)) >= 1:
             challenges.append(
                 {
-                    "criterion": self.challenge_criterion[key],
-                    "ground": self.challenge_ground[key],
-                    "evidence": self.challenge_evidence[key],
-                    "bond": int(self.challenge_bond[key]),
-                    "filer": self.challenge_filer[key].as_hex,
-                    "status": self.challenge_status[key],
-                    "result": self.challenge_result[key],
-                    "resolved_at": self.challenge_resolved_at[key],
-                    "original_verdict": self.criterion_verdict[
-                        self._ck(program_id, entry_index, self.challenge_criterion[key])
-                    ],
+                    "criterion": self._read(self.challenge_criterion, key, ""),
+                    "ground": self._read(self.challenge_ground, key, ""),
+                    "evidence": self._read(self.challenge_evidence, key, ""),
+                    "bond": int(self._read(self.challenge_bond, key, 0)),
+                    "filer": self._read(self.challenge_filer, key, gl.Address.ZERO).as_hex,
+                    "status": self._read(self.challenge_status, key, CHALLENGE_FILED),
+                    "result": self._read(self.challenge_result, key, ""),
+                    "resolved_at": self._read(self.challenge_resolved_at, key, ""),
+                    "original_verdict": self._read(
+                        self.criterion_verdict,
+                        self._ck(
+                            program_id,
+                            entry_index,
+                            self._read(self.challenge_criterion, key, ""),
+                        ),
+                        "NOT_JUDGED",
+                    ),
                     "note": (
                         "The original verdict is preserved. A challenge outcome is "
                         "recorded beside it and never overwrites it."
@@ -1584,13 +1722,23 @@ class ContestReceipt(gl.contract.Contract):
         return {
             "program_id": program_id,
             "entry_index": entry_index,
-            "repo": self.entry_repo[key],
-            "commit": self.entry_commit[key],
-            "tree_digest": self.entry_tree_digest[key],
-            "committer_date": self.entry_committer_date[key],
-            "status": self.entry_status[key],
+            "repo": self._read(self.entry_repo, key, ""),
+            "commit": self._read(self.entry_commit, key, ""),
+            "tree_digest": self._read(self.entry_tree_digest, key, ""),
+            "committer_date": self._read(self.entry_committer_date, key, ""),
+            "status": self._read(self.entry_status, key, ENTRY_SUBMITTED),
+            # When finality was observed, which is what released the payout. Stored
+            # since M3 but unreachable from any view: an audit record that cannot
+            # say when a verdict became final cannot show that the clock-reading
+            # half of the rule-5 split ran at all.
+            "finalized_at": self._read(self.entry_finalized_at, key, ""),
             "verdicts": {
-                slug: self.criterion_verdict[self._ck(program_id, entry_index, slug)]
+                slug: (
+                    self._read(
+                        self.criterion_verdict, self._ck(program_id, entry_index, slug), ""
+                    )
+                    or "NOT_JUDGED"
+                )
                 for slug in self._criterion_slugs(program_id)
             },
             "challenges": challenges,
@@ -1607,16 +1755,18 @@ class ContestReceipt(gl.contract.Contract):
         The two numbers are not interchangeable and are never summed here.
         """
         self._require_program(program_id)
-        filed = int(self.program_challenge_count[program_id])
-        upheld = int(self.program_challenges_upheld[program_id])
+        filed = int(self._read(self.program_challenge_count, program_id, 0))
+        upheld = int(self._read(self.program_challenges_upheld, program_id, 0))
         overturn_bps = 0 if filed == 0 else (upheld * 10000) // filed
         return {
             "program_id": program_id,
-            "entries": int(self.program_entry_count[program_id]),
+            "entries": int(self._read(self.program_entry_count, program_id, 0)),
             "disqualified_deterministically": int(
-                self.program_disqualified_count[program_id]
+                self._read(self.program_disqualified_count, program_id, 0)
             ),
-            "contested_criteria": int(self.program_undetermined_count[program_id]),
+            "contested_criteria": int(
+                self._read(self.program_undetermined_count, program_id, 0)
+            ),
             "contested_criteria_meaning": (
                 "criteria whose verdict the jury could not settle; not a count of "
                 "validator objections, and not comparable to one"
@@ -1624,10 +1774,10 @@ class ContestReceipt(gl.contract.Contract):
             "challenges_filed": filed,
             "challenges_upheld": upheld,
             "overturn_rate_bps": overturn_bps,
-            "pool": int(self.program_pool[program_id]),
-            "locked": int(self.program_locked[program_id]),
-            "paid_out": int(self.program_paid_out[program_id]),
-            "refunded": int(self.program_refunded[program_id]),
+            "pool": int(self._read(self.program_pool, program_id, 0)),
+            "locked": int(self._read(self.program_locked, program_id, 0)),
+            "paid_out": int(self._read(self.program_paid_out, program_id, 0)),
+            "refunded": int(self._read(self.program_refunded, program_id, 0)),
         }
 
     @gl.public.view
@@ -1650,15 +1800,18 @@ class ContestReceipt(gl.contract.Contract):
             entries.append(
                 {
                     "index": index,
-                    "repo": self.entry_repo[key],
-                    "commit": self.entry_commit[key],
-                    "tree_digest": self.entry_tree_digest[key],
-                    "committer_date": self.entry_committer_date[key],
-                    "status": self.entry_status[key],
+                    "repo": self._read(self.entry_repo, key, ""),
+                    "commit": self._read(self.entry_commit, key, ""),
+                    "tree_digest": self._read(self.entry_tree_digest, key, ""),
+                    "committer_date": self._read(self.entry_committer_date, key, ""),
+                    "status": self._read(self.entry_status, key, ENTRY_SUBMITTED),
                     "verdicts": {
-                        slug: self.criterion_verdict[
-                            self._ck(program_id, index, slug)
-                        ]
+                        slug: (
+                            self._read(
+                                self.criterion_verdict, self._ck(program_id, index, slug), ""
+                            )
+                            or "NOT_JUDGED"
+                        )
                         for slug in self._criterion_slugs(program_id)
                     },
                 }
@@ -1671,21 +1824,27 @@ class ContestReceipt(gl.contract.Contract):
             challenges.append(
                 {
                     "entry_index": index,
-                    "criterion": self.challenge_criterion[key],
-                    "ground": self.challenge_ground[key],
-                    "status": self.challenge_status[key],
-                    "result": self.challenge_result[key],
-                    "original_verdict": self.criterion_verdict[
-                        self._ck(program_id, index, self.challenge_criterion[key])
-                    ],
+                    "criterion": self._read(self.challenge_criterion, key, ""),
+                    "ground": self._read(self.challenge_ground, key, ""),
+                    "status": self._read(self.challenge_status, key, CHALLENGE_FILED),
+                    "result": self._read(self.challenge_result, key, ""),
+                    "original_verdict": self._read(
+                        self.criterion_verdict,
+                        self._ck(
+                            program_id, index, self._read(self.challenge_criterion, key, "")
+                        ),
+                        "NOT_JUDGED",
+                    ),
                 }
             )
         return {
             "program_id": program_id,
-            "name": self.program_name[program_id],
-            "status": self.program_status[program_id],
-            "criteria": _json_list_or_empty(self.program_criteria[program_id]),
-            "deadline": int(self.program_deadline[program_id]),
+            "name": self._read(self.program_name, program_id, ""),
+            "status": self._read(self.program_status, program_id, PROGRAM_OPEN),
+            "criteria": _json_list_or_empty(
+                self._read(self.program_criteria, program_id, "[]")
+            ),
+            "deadline": int(self._read(self.program_deadline, program_id, 0)),
             "entries": entries,
             "challenges": challenges,
         }
@@ -1698,6 +1857,21 @@ class ContestReceipt(gl.contract.Contract):
         A transfer message being posted is not a delivery.
         """
         return int(self.balance)
+
+
+def _commit_in_evidence(evidence: str) -> str:
+    """The first full 40-hex commit SHA appearing in a challenger's evidence.
+
+    A challenge names a *new fact*, and for ``AFTER_DEADLINE_WORK`` that fact is a
+    different commit. The evidence is canonicalised as an https URL, so the SHA
+    sits somewhere inside it — as a path segment, a query value, or the path
+    itself. Extracting it with a pattern rather than comparing whole strings is
+    what makes that ground decidable at all.
+    """
+    if not isinstance(evidence, str):
+        return ""
+    match = re.search(r"\b([0-9a-f]{40})\b", evidence.lower())
+    return match.group(1) if match is not None else ""
 
 
 def _parse_iso8601(value: str):

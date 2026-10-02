@@ -20,9 +20,9 @@ Status vocabulary:
 | M0 · environment and pins | stub deploys, reaches `Finalized` on chain 61997, schema derivable, `genvm-lint check` clean | **passed** |
 | M1 · consensus spike | measured convergence number, decided comparison mode | **passed** — 6/6 converged, 2-bucket. Read the caveats before relying on it |
 | M2 · repo skeleton | `npm run build` succeeds, stub `index.html` serves | **passed** |
-| M3 · the contract | both checks clean, 9+ methods on the live probe, no `raise` in a payable method, no clock read with a transfer | **passed on the AST half, the live probe and the rule audit; the linter's SDK-validation half is `unverified` (network-blocked). One environment finding forced a design change; read it** |
+| M3 · the contract | both checks clean, 9+ methods on the live probe, no `raise` in a payable method, no clock read with a transfer | **passed** — the SDK-validation half that was `unverified` at M3 now completes; see the M4 section. One environment finding forced a design change; read it |
 | M3.5 · bounded LLM criterion | optional; the product is complete without it | pending |
-| M4 · direct tests | 45+ tests, pytest line pasted verbatim below | pending |
+| M4 · direct tests | 45+ tests, pytest line pasted verbatim below | **passed** — 92 tests in twelve groups, 16/16 mutations proved a named test red. Five contract defects found, three of them money-stranding; read them before deploying |
 | M5 · frontend | build succeeds, real lifecycle, business and lifecycle state shown separately | pending |
 | M6 · live run and evidence | steps 1–12 present, every tx `Finalized`, balance observed changing | pending |
 | M7 · docs | a stranger can clone, deploy and reproduce without asking | pending |
@@ -397,6 +397,105 @@ the corrected plan text. The implemented surface is **14 (8 writes, 6 views)**:
 log. The 14th is the internal finalization callback, which the plan's own table
 lists. The plan's cut rule is "if the implemented count exceeds 14, cut a view",
 so 14 is inside the stated tolerance and no capability was cut to reach it.
+
+## M4 · direct tests
+
+Record: `state/reviews/2026-10-01-m4-direct-tests/REVIEW.md`.
+Mutation proofs: `state/reviews/2026-10-01-m4-direct-tests/MUTATIONS.md`.
+
+```bash
+bash run_direct_tests.sh
+```
+
+Offline. No Docker, no network, no model, no live node. `GENVM_VERSION=v0.6.0-rc5`.
+
+### The pytest line, verbatim
+
+```
+92 passed in 128.52s (0:02:08)
+```
+
+Machine-readable cross-check, from `--junitxml`:
+
+```
+tests=92 failures=0 errors=0 skipped=0 time=68.310s
+```
+
+**Do not run the suite with `-q`.** On this runner `-q` suppresses pytest's
+session summary entirely: the progress dots print, the exit code is right, and
+the `92 passed in …` line never appears. It is a `-q` interaction with gltest's
+plugin set, not a broken suite — but it looks exactly like one. The line above
+was captured without `-q` for that reason.
+
+### Group coverage
+
+| group | tests | mutation that made it red |
+| --- | --- | --- |
+| canonicalisation | 8 | drop the trailing-slash strip in `_canonical_repo` |
+| malformed shapes | 13 | lower the criteria floor from 3 to 1 |
+| deadline boundary | 6 | make the deadline comparison inclusive (`<=`) |
+| duplicate | 4 | stop consulting the stored digest set |
+| declared vs measured | 5 | continue past an unknown language token |
+| source failure | 8 | treat every non-404 as a pass |
+| digest integrity | 5 | return a constant from `get_receipt_digest` |
+| authorisation | 7 | drop the owner check from `cancel_program` |
+| challenge | 9 | allow two challenges on one entry |
+| refund | 6 | stop zeroing the locked balance before emitting |
+| conservation | 6 | drop the tie-split remainder |
+| panel and API boundaries | 11 | report disqualified entries as contested criteria |
+
+Sixteen mutations, sixteen named tests that went red. Reproduce with
+`.venv/bin/python scripts/m4_mutation_proof.py`.
+
+### Five defects found by these tests
+
+1. **`freeze_entry` never worked.** `committer_block` where the local was
+   `commit_block` — a `NameError` on every successful freeze. Missed at M3
+   because M3 had no network and the smoke test never froze an entry.
+2. **The winner could never be paid.** `claim_payout` required
+   `PENDING_FINALITY`, but `_on_entry_finalized` exists to move the entry *off*
+   that state, so the claim was always refused and the pool was stranded on a
+   `CLOSED` programme that could not be cancelled. Hidden by a *harness* bug:
+   `EmitInternalMessage` was silently undispatched, so the callback never ran and
+   the suite would have gone green over a contract that could not pay anyone.
+3. **An outage could disqualify an entrant.** Zero paths from an unavailable
+   GitHub were searched for `.py`, found nothing, and recorded `FAIL`. Absence of
+   evidence read as evidence of absence, twice, in two different methods.
+4. **A denied challenge's bond could be stranded.** `claim_payout` only accepts a
+   closed programme and `cancel_program` sets `CANCELLED`, so cancelling with a
+   bond outstanding returned the pool and left the challenger's GEN stuck.
+5. **`AFTER_DEADLINE_WORK` could never be upheld.** The evidence was
+   canonicalised as an https URL and then compared for equality against a 40-hex
+   commit, so the one ground a deterministic re-derivation can settle was
+   decorative.
+
+Also: `get_entry` raised on an unfrozen entry (confirmed on chain —
+`gen_call failed (code=-32000)`), and `finalize_program` raised on any
+unchallenged entry, which is the common case. Both fixed by reading views through
+a defaulted accessor; write paths still index directly.
+
+### `genvm-lint check`, both halves
+
+The SDK-validation half was `unverified` at M3 — it hung on SDK-load network
+timeouts. It completes now:
+
+```
+✓ Lint passed (3 checks)
+✓ Validation passed
+  Contract: ContestReceipt
+  Methods: 14 (6 view, 8 write)
+```
+
+Exit 0.
+
+### Still `unverified` after M4
+
+| check | why |
+| --- | --- |
+| `validator_fn` behaviour | gltest's direct runner executes the leader and returns its result without running the validator. M1's 6/6 2-bucket convergence remains the only validator evidence. |
+| any live `freeze_entry` | every GitHub call in the suite is mocked. M6 is the first real one. |
+| a real payout on chain | the inversion in defect 2 was found offline; proving the fix needs M6's finalization plus an observed balance decrease. |
+| the value model itself | `direct_vm.deal`, the payable-call credit and the transfer debit are modelled in `tests/direct/conftest.py`, not by gltest. Conservation tests are only as good as that model. |
 
 ## Evidence rules
 

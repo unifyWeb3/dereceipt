@@ -167,6 +167,28 @@ Each is a measured fact or a measured failure, not a preference.
     block clock. It proves *when the work existed*, which is the claim being
     made; what it does not prove is *when the transaction arrived*, and with no
     usable clock the contract cannot and does not claim to.
+11. **Absence of evidence is never evidence of absence.** A criterion the jury
+    could not settle is `UNDETERMINED`, and it does not disqualify. This applies
+    in both directions and at every layer: a non-404 from GitHub, a 200 whose
+    body cannot be parsed, and a manifest that came back empty are all *no
+    observation*, and none of them may be turned into a `FAIL`. M4 found two
+    places where they were — a language check that searched zero paths and
+    reported "absent", and a tree read that reported "readme absent" for a
+    repository nobody managed to read. Both would have disqualified an entrant
+    because GitHub was having a bad day, which is the exact failure this product
+    exists to prevent.
+12. **A view must be safe in every state the contract can reach.** `TreeMap`
+    raises `KeyError` for an unwritten key, which means a view that reads a field
+    nothing has written yet fails rather than reporting its absence — and the
+    most common state there is, "submitted but not yet frozen", had no verdict to
+    read. Views read through a defaulted accessor and say `NOT_JUDGED`; write
+    paths index directly, so a genuine write-before-read bug still surfaces.
+13. **Money moves only after finality is observed, in one direction.**
+    `finalize_program` schedules a payout, `_on_entry_finalized` records that
+    finality was seen, and only then may `claim_payout` schedule the transfer.
+    Each of the three states is distinct and the order is not negotiable: M4
+    found `claim_payout` guarding on the pre-finality state, which made the
+    whole path unreachable on chain and stranded the pool.
 
 ## A contested criterion is not a validator objection
 
