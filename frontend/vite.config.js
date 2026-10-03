@@ -3,7 +3,12 @@ import { defineConfig } from "vite";
 // Relative base so the built bundle also serves from a subpath, and so the
 // explorer-evidence links in the docs resolve regardless of where it is hosted.
 export default defineConfig({
-  base: "./",
+  // Absolute, not relative. A relative base makes `index.html` request
+  // `./assets/…`, which on a deep link like `/program/0/entry/1` resolves to
+  // `/program/assets/…` and 404s. Relative bases are right for a page opened
+  // only at its root, and wrong the moment the app owns its URLs — which it now
+  // does, so a receipt can be shared as a link.
+  base: "/",
   build: {
     // The reference submission's whole UI was 13.9 KB of hand-written JS and
     // satisfied "frontend genuinely calls the contract". There is no framework

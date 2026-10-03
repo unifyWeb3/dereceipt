@@ -42,12 +42,25 @@ export function assertEntryIndex(value) {
 }
 
 /**
- * Parse a hash route into a validated shape, or return null for the landing page.
+ * Parse a route into a validated shape, or return null for the landing page.
  *
- * Routes are `#/`, `#/open`, `#/program/0`, `#/program/0/entry/1`.
+ * Two forms are accepted, and both are first-class:
+ *
+ *   /program/0/entry/1        a real path — shareable, and what a link in the
+ *                             submission notes or a demo script should use
+ *   #/program/0/entry/1       a hash — what this app shipped with first, kept so
+ *                             an already-bookmarked URL still lands somewhere
+ *
+ * A path is preferred when there is one. The hash is only consulted when the
+ * path is the site root, which is what a fresh load of `/` looks like.
  */
-export function parseRoute(hash) {
-  const raw = String(hash || "").replace(/^#/, "");
+export function parseRoute(input) {
+  const source = String(input ?? "");
+  const fromHash = source.includes("#") ? source.slice(source.indexOf("#")) : "";
+  const path = source.split("#")[0] || "";
+  const raw = (path && path !== "/")
+    ? path
+    : fromHash.replace(/^#/, "") || "";
   const parts = raw.split("/").filter(Boolean);
 
   if (parts.length === 0) return { name: "landing" };
@@ -65,18 +78,18 @@ export function parseRoute(hash) {
   return { name: "not-found", path: raw };
 }
 
-/** Build a route string from a validated shape. */
+/** Build a route path from a validated shape. */
 export function buildRoute(route) {
   switch (route.name) {
     case "landing":
-      return "#/";
+      return "/";
     case "open":
-      return "#/open";
+      return "/open";
     case "programme":
-      return `#/program/${assertProgramId(route.programId)}`;
+      return `/program/${assertProgramId(route.programId)}`;
     case "receipt":
-      return `#/program/${assertProgramId(route.programId)}/entry/${assertEntryIndex(route.entryIndex)}`;
+      return `/program/${assertProgramId(route.programId)}/entry/${assertEntryIndex(route.entryIndex)}`;
     default:
-      return "#/";
+      return "/";
   }
 }

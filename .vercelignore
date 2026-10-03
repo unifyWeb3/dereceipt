@@ -1,0 +1,42 @@
+# What Vercel uploads is what it uploads. Keep it to what the build needs.
+#
+# The first deploy attempt aborted partway through a 2.9 MB upload, and Vercel
+# was auto-detecting this repository as **Python** — because `contracts/`,
+# `scripts/`, `conftest.py` and `pyproject.toml` all sit at the root. None of
+# them are involved in building the interface.
+#
+# So: the deployment contains the frontend and the contract, and nothing else.
+# The contract is kept because it is the thing the frontend reads, and a
+# reviewer arriving from the deployment URL can see it. Everything else is
+# reachable from the repository.
+
+# The contract source and its docs — the subject of the product.
+!contracts/
+!docs/ARCHITECTURE.md
+!docs/VERIFICATION.md
+!README.md
+!vercel.json
+
+# Everything below is development machinery that a build never reads.
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+tests/
+state/
+frontend/.m5-verify-build/
+frontend/dist/
+scripts/
+conftest.py
+pyproject.toml
+requirements.txt
+requirements-dev.txt
+gltest.config.yaml
+run_direct_tests.sh
+.env
+.env.*
+*.key
+*.keystore

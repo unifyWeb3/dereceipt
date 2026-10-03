@@ -529,3 +529,13 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.025em; line-height: 1.15; font-weight
   .shell { padding: 20px 16px 60px; }
   .card, .stage__card { padding: 18px 16px; }
 }
+/* The <noscript> fallback. Styled here rather than inline in the markup so the
+   Content-Security-Policy can forbid inline styles entirely — 'unsafe-inline'
+   in a policy is a hole, and there is no reason this page needs it. */
+.noscript {
+  max-width: 60ch;
+  margin: 12vh auto;
+  padding: 0 24px;
+  font-family: var(--sans);
+  color: var(--ink-dim);
+}

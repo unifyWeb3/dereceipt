@@ -6,10 +6,13 @@ When an AI jury judges a hackathon entry, the losing side has no way to find out
 why. DeReceipt keeps the reasoning, the evidence and the disputes — and publishes
 the programme's own overturn rate.
 
+- **Live interface:** **https://dereceipt.vercel.app** — a receipt is shareable
+  by URL, e.g. `https://dereceipt.vercel.app/program/0/entry/0`
 - **Contract:** [`contracts/contest_receipt.py`](contracts/contest_receipt.py) — an
-  [Intelligent Contract](https://docs.genlayer.com) on GenLayer Studio-dev
-- **Interface:** [`frontend/`](frontend/) — vanilla ES modules, no framework, no
-  database, no backend
+  [Intelligent Contract](https://docs.genlayer.com) on GenLayer Studio-dev,
+  deployed at `0xAFCc7a6fCa2ceb26365708E1456735f087CF8f7D` (chain 61997)
+- **Interface source:** [`frontend/`](frontend/) — vanilla ES modules, no
+  framework, no database, no backend
 - **Architecture and the hard rules:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **What has actually been observed:** [`docs/VERIFICATION.md`](docs/VERIFICATION.md)
 
@@ -64,10 +67,12 @@ Four views, hash-routed, no framework:
 
 | route | what it is for |
 | --- | --- |
-| `#/` | the product claim, backed by the live receipt it has actually produced |
-| `#/open` | the organizer path — open a programme, pick the rubric, lock the pool |
-| `#/program/0` | business state, the accuracy block, the digest, the organizer controls |
-| `#/program/0/entry/1` | one receipt, shareable by URL |
+| `/` | the product claim, backed by the live receipt it has actually produced |
+| `/open` | the organizer path — open a programme, pick the rubric, lock the pool |
+| `/program/0` | business state, the accuracy block, the digest, the organizer controls |
+| `/program/0/entry/1` | one receipt, shareable by URL |
+
+Legacy `#/…` links are still accepted, so an old bookmark lands somewhere.
 
 Reading needs no wallet. Only a write does, and the app never holds a key.
 

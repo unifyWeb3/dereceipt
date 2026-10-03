@@ -262,23 +262,41 @@ async function connect() {
 // ---------------------------------------------------------------------------
 
 function go(route) {
-  const hash = buildRoute(route);
-  if (window.location.hash === hash) {
+  const path = buildRoute(route);
+  if (window.location.pathname === path) {
     state.route = route;
     load();
   } else {
-    window.location.hash = hash;
+    // A real path, not a hash. A receipt URL is meant to be pasted into a
+    // submission note, a demo script or a chat message, and `/#/program/0` in
+    // that context reads as a workaround rather than a link.
+    window.history.pushState({}, "", path);
+    state.route = route;
+    load();
   }
 }
 
-function onHashChange() {
+/**
+ * Read the route from the URL.
+ *
+ * Both a real path and a legacy hash are accepted, because the first version of
+ * this app shipped hash routes and a bookmarked `#/program/0` should still land
+ * somewhere useful.
+ */
+function readRoute() {
+  const { pathname, hash } = window.location;
+  const source = pathname && pathname !== "/" ? pathname : hash || "/";
   try {
-    state.route = parseRoute(window.location.hash);
+    return parseRoute(source);
   } catch (error) {
-    // A malformed hash must not blank the app. The identifier assertion throws a
+    // A malformed URL must not blank the app. The identifier assertion throws a
     // sentence naming which argument was wrong, which is exactly what is needed.
-    state.route = { name: "landing", routeError: error?.message || String(error) };
+    return { name: "landing", routeError: error?.message || String(error) };
   }
+}
+
+function onLocationChange() {
+  state.route = readRoute();
   load();
 }
 
@@ -318,7 +336,7 @@ function chrome() {
     { class: "topbar" },
     el(
       "a",
-      { class: "topbar__brand", href: "#/" },
+      { class: "topbar__brand", href: "/" },
       el("span", { class: "topbar__name" }, PRODUCT_NAME),
       el("span", { class: "topbar__tag" }, TAGLINE),
     ),
@@ -417,8 +435,18 @@ async function openProgramme({ name, criteria, pool, deadline, challengeWindow }
 // Boot
 // ---------------------------------------------------------------------------
 
+/**
+ * A legacy `#/...` link fires `hashchange`, not `popstate`. Kept so an old
+ * bookmark does not silently do nothing.
+ */
+function onHashChangeLegacy() {
+  state.route = readRoute();
+  load();
+}
+
+
 async function boot() {
-  onHashChange();
+  state.route = readRoute();
 
   // The chain assertion runs before anything is sent, so a misconfigured build
   // fails with a sentence rather than a screen of zeroes.
@@ -430,7 +458,8 @@ async function boot() {
 
   state.connected = await readConnectedAccount();
 
-  window.addEventListener("hashchange", onHashChange);
+  window.addEventListener("popstate", onLocationChange);
+  window.addEventListener("hashchange", onHashChangeLegacy);
   listenForAccountChange(() => {
     readConnectedAccount().then((account) => {
       state.connected = account;

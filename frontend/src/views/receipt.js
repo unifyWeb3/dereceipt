@@ -8,7 +8,7 @@
  * all of it.
  */
 
-import { el, badge, stat, stateBlock, copyable, explorerLink } from "../lib/dom.js";
+import { el, badge, stat, stateBlock, copyable } from "../lib/dom.js";
 import {
   dateFromUnix,
   digest,
@@ -239,7 +239,11 @@ function challengeRow(challenge) {
           "p",
           { class: "challenge__detail" },
           "Evidence: ",
-          explorerLink("https://github.com", "", "", ""),
+          // Rendered as text, not as a link. The field holds whatever URL the
+          // challenger canonicalised, and an earlier version of this file wrapped
+          // it in an anchor built from an empty base — which emitted an `href`
+          // of `https://github.com//`. Chain-supplied strings are shown, never
+          // turned into navigation.
           el("code", { class: "mono challenge__evidence" }, challenge.evidence),
         )
       : null,

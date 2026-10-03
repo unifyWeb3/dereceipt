@@ -646,6 +646,72 @@ The M2 gate read the product name as a literal. It now reads it from
 11/11 checks passed
 ```
 
+## M8 preparation · the public deployment
+
+Two blockers closed on 2026-10-03. Both verified from outside, anonymously.
+
+### The repository is public
+
+```
+GET https://api.github.com/repos/unifyWeb3/dereceipt   → 200  "private": false
+GET https://github.com/unifyWeb3/dereceipt             → 200
+GET https://raw.githubusercontent.com/.../main/README.md → 200
+```
+
+103 files on `main`. No build artefact, no `node_modules`, no `.env`.
+
+### The interface is deployed
+
+**https://dereceipt.vercel.app**
+
+| check | observed |
+| --- | --- |
+| `/` | 200, `<title>DeReceipt — auditable verdicts…`, app shell |
+| `/open`, `/program/0`, `/program/0/entry/0` | 200, app shell — **receipt URLs are shareable** |
+| `/nonsense` | 200, app shell — an unknown path is not a dead end |
+| hashed assets | 200, `application/javascript` / `text/css`, not rewritten to the shell, `immutable` |
+| bundle | contract address, chain 61997, Studio-dev RPC, both identifier guards, `pushState` |
+| key material | **0** 32-byte hex, **0** `PRIVATE_KEY` in the application chunk |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://studio-dev.genlayer.com; object-src 'none'; frame-ancestors 'none'; form-action 'none'` |
+| also | `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, HSTS, `Permissions-Policy` |
+
+### Three things that had to be fixed to get there
+
+**`vercel.json` was invalid.** It declared `rootDirectory`, which is a project
+setting and not a `vercel.json` key; the deploy was rejected with *"Invalid
+vercel.json — should NOT have additional property `rootDirectory`"*. The build
+commands now `cd frontend` themselves, so the deployment is self-contained and
+"Deploy from GitHub" needs no dashboard setting.
+
+**Deep links 404'd, twice, for two different reasons.**
+
+1. `cleanUrls: true` combined with the rewrite returned 404 for every path that
+   was not a real file. Removing it fixed the routing.
+2. `base: "./"` in the Vite config made `index.html` request `./assets/…`, which
+   on `/program/0/entry/1` resolves to `/program/assets/…` and 404s. So even with
+   the rewrite working the page would have been broken on a deep link. The base
+   is now absolute, which is the correct choice for an app that owns its URLs.
+
+Both were only findable by fetching the deployed URLs. Neither showed up in a
+local build or in `vite preview`, which serves from the root.
+
+### Two defects fixed while there
+
+- `receipt.js` wrapped the challenge evidence in an anchor built from an empty
+  base, which emitted `href="https://github.com//"`. Chain-supplied strings are
+  now rendered as text and never turned into navigation.
+- The `<noscript>` fallback carried an inline `style` attribute, which would have
+  forced `'unsafe-inline'` into the CSP. It is a class now, and the policy has no
+  `unsafe-inline` anywhere.
+
+### Still unverified: the paint
+
+Every check above is over HTTP — status codes, headers, bundle contents, asset
+resolution. **No browser was available in this session, so the rendered pixels
+are unverified.** What is verified is that the right bytes are served from a
+public URL and that the app's own code carries the contract address, the chain
+pin and the identifier guards.
+
 ## Evidence rules
 
 Carried forward from the previously scoring 360/400 build, which is the right

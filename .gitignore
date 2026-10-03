@@ -44,3 +44,4 @@ artifacts/
 # See state/reviews/2026-10-01-hackathon-discovery/evidence/THIRD-PARTY.md
 state/reviews/2026-10-01-hackathon-discovery/evidence/competitor-hackathon-judge-contract.py
 state/reviews/2026-10-01-hackathon-discovery/evidence/competitor-hackathon-judge-scorecards-contract.py
+.vercel

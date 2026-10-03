@@ -33,7 +33,7 @@ import {
   readReceipt,
   readSchema,
 } from "../src/lib/contract.js";
-import { assertEntryIndex, assertProgramId, parseRoute } from "../src/lib/identifiers.js";
+import { assertEntryIndex, assertProgramId, buildRoute, parseRoute } from "../src/lib/identifiers.js";
 import { CONTRACT_ADDRESS } from "../src/config.js";
 
 const results = [];
@@ -168,19 +168,42 @@ async function main() {
   }
 
   // routing
+  // Real paths first — a receipt URL is meant to be pasted into a submission
+  // note or a demo script, and `#/...` in that context reads as a workaround.
+  // The legacy hash form is still accepted so an old bookmark lands somewhere.
   const routes = [
+    ["/", "landing"],
+    ["/open", "open"],
+    ["/program/0", "programme"],
+    ["/program/0/entry/1", "receipt"],
     ["#/", "landing"],
-    ["#/open", "open"],
-    ["#/program/0", "programme"],
     ["#/program/0/entry/1", "receipt"],
   ];
   for (const [hash, expected] of routes) {
     const parsed = parseRoute(hash);
     record(`route ${hash}`, parsed.name === expected, `→ ${parsed.name}`);
   }
-  const badRoute = attempt(() => parseRoute("#/program/0/entry/abc"));
-  record("route #/program/0/entry/abc is rejected, not silently coerced", !badRoute.ok,
+  const badRoute = attempt(() => parseRoute("/program/0/entry/abc"));
+  record("route /program/0/entry/abc is rejected, not silently coerced", !badRoute.ok,
     badRoute.ok ? "parsed anyway" : "rejected");
+
+  // A built route must round-trip through the parser, or a link is not a link.
+  for (const route of [
+    { name: "landing" },
+    { name: "open" },
+    { name: "programme", programId: "0" },
+    { name: "receipt", programId: "0", entryIndex: 3 },
+  ]) {
+    const built = buildRoute(route);
+    const reparsed = await attempt(() => parseRoute(built));
+    const same = reparsed.ok
+      && reparsed.value.name === route.name
+      && (route.programId === undefined || reparsed.value.programId === route.programId)
+      && (route.entryIndex === undefined || reparsed.value.entryIndex === route.entryIndex);
+    record(`buildRoute → ${built} round-trips`, same,
+      same ? "shareable URL parses back to the same view"
+           : `got ${JSON.stringify(reparsed.value ?? reparsed.error)}`);
+  }
 
   // schema
   const schema = await attempt(() => readSchema());
